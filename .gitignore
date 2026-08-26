@@ -6,6 +6,9 @@ sessions/
 auth_info_baileys/
 *.session
 
+# Session backups (contains credentials — never commit)
+backups/
+
 # Environment variables
 .env
 .env.local
@@ -19,6 +22,9 @@ logs/
 
 # Documentation reference (local)
 docs_baileys/
+
+# Panduan deployment (detail infrastruktur lokal — tidak ikut repo)
+DEPLOYMENT.md
 
 # OS generated
 .DS_Store
