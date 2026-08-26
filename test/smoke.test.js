@@ -131,6 +131,21 @@ async function runTests() {
     console.error('❌ OTP cooldown test failed:', e.message);
   }
 
+  console.log('\n--- 7. Testing Device Restart Endpoint (reconnect tanpa hapus sesi) ---');
+  try {
+    const res = await fetch(`${BASE_URL}/restart`, {
+      method: 'POST',
+      headers: { 'x-api-key': API_KEY },
+    });
+    const data = await res.json();
+    assert.strictEqual(res.status, 200);
+    assert.strictEqual(data.status, 'success');
+    assert.ok(['connecting', 'qr_ready', 'connected'].includes(data.data.current_status));
+    console.log(`✅ POST /restart returned 200 (status kini: ${data.data.current_status}).`);
+  } catch (e) {
+    console.error('❌ Restart endpoint test failed:', e.message);
+  }
+
   console.log('\n🎉 ALL SMOKE TESTS PASSED SUCCESSFULLY! 🚀');
 }
 

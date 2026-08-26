@@ -22,14 +22,15 @@
    * [B. Autentikasi & Penautan Perangkat](#b-autentikasi--penautan-perangkat)
      * [`POST /pair-code`](#6-request-kode-pairing-8-digit-post-pair-code)
      * [`POST /logout`](#7-putuskan-sesi--logout-post-logout)
+     * [`POST /restart`](#8-restart-koneksi-tanpa-hapus-sesi-post-restart)
    * [C. Pengiriman Pesan & Dokumen](#c-pengiriman-pesan--dokumen)
-     * [`POST /send-otp`](#8-kirim-kode-otp-post-send-otp)
-     * [`POST /send-message`](#9-kirim-pesan-teks-bebas-post-send-message)
-     * [`POST /send-document`](#10-kirim-dokumen-pdf--undangan-rapat-post-send-document)
-     * [`POST /send-image`](#11-kirim-gambar--dokumentasi-post-send-image)
-     * [`POST /send-bulk`](#12-kirim-pesan-massal--broadcast-post-send-bulk)
+     * [`POST /send-otp`](#9-kirim-kode-otp-post-send-otp)
+     * [`POST /send-message`](#10-kirim-pesan-teks-bebas-post-send-message)
+     * [`POST /send-document`](#11-kirim-dokumen-pdf--undangan-rapat-post-send-document)
+     * [`POST /send-image`](#12-kirim-gambar--dokumentasi-post-send-image)
+     * [`POST /send-bulk`](#13-kirim-pesan-massal--broadcast-post-send-bulk)
    * [D. Utilitas & Validasi](#d-utilitas--validasi)
-     * [`POST /check-number`](#13-cek-nomor-terdaftar-di-whatsapp-post-check-number)
+     * [`POST /check-number`](#14-cek-nomor-terdaftar-di-whatsapp-post-check-number)
 4. [Contoh Kode Integrasi](#4-contoh-kode-integrasi)
    * [PHP (cURL Native & CodeIgniter 4)](#1-integrasi-php--codeigniter-4)
    * [JavaScript / Node.js (Fetch)](#2-integrasi-javascript--nodejs-fetch)
@@ -99,7 +100,7 @@ Gateway memasang jaring pengaman tingkat kedua (kebijakan bisnis yang detail tet
 | Lingkup | Default | Variabel Env |
 |---|---|---|
 | Semua endpoint kirim + `check-number` (per IP) | 60 permintaan/menit | `RATE_LIMIT_SEND_PER_MINUTE` |
-| `POST /pair-code` (per IP) | 5 permintaan/menit | `RATE_LIMIT_PAIR_PER_MINUTE` |
+| `POST /pair-code` + `/logout` + `/restart` (per IP) | 5 permintaan/menit | `RATE_LIMIT_PAIR_PER_MINUTE` |
 | OTP ke nomor yang sama | 1 per 60 detik | `OTP_COOLDOWN_SECONDS` |
 | OTP ke nomor yang sama (per jam) | 5 per jam | `OTP_MAX_PER_PHONE_PER_HOUR` |
 
@@ -180,10 +181,16 @@ Mengembalikan kondisi keterhubungan socket WhatsApp secara ringkas.
       "id": "6281234567890@s.whatsapp.net",
       "phone": "6281234567890"
     },
-    "qr_available": false
+    "qr_available": false,
+    "last_disconnect": {
+      "at": "2026-08-26T03:12:44.000Z",
+      "code": 515,
+      "reason": "Connection Closed"
+    }
   }
 }
 ```
+> Field `last_disconnect` berisi jejak putusnya koneksi terakhir (waktu, kode status `@hapi/boom`, dan penyebabnya) — berguna untuk mendiagnosis kestabilan koneksi dari panel admin. Bernilai `null` jika belum pernah terputus sejak server menyala.
 
 ---
 
@@ -240,7 +247,7 @@ Menghasilkan 8 digit kode alfanumerik untuk menghubungkan nomor WhatsApp tanpa p
 ---
 
 #### 7. Putuskan Sesi & Logout (`POST /logout`)
-Memutuskan sesi WhatsApp dari server dan membersihkan file kredensial di disk `sessions/`.
+Memutuskan sesi WhatsApp dari server dan membersihkan file kredensial di disk `sessions/`. Gunakan untuk melepas tautan device atau berganti nomor — setelah ini wajib pairing ulang (QR / kode 8 digit).
 * **Autentikasi:** Wajib API Key
 * **Contoh Respons (200 OK):**
 ```json
@@ -252,11 +259,30 @@ Memutuskan sesi WhatsApp dari server dan membersihkan file kredensial di disk `s
 
 ---
 
+#### 8. Restart Koneksi Tanpa Hapus Sesi (`POST /restart`)
+Memutus socket WhatsApp lalu menghubungkan ulang **menggunakan kredensial yang sama** — tanpa scan QR ulang. Gunakan saat koneksi macet/bermasalah tetapi sesi masih valid. Untuk kasus sesi bermasalah (mis. di-logout dari HP), gunakan `POST /logout` sebagai gantinya.
+* **Autentikasi:** Wajib API Key
+* **Contoh Respons (200 OK):**
+```json
+{
+  "status": "success",
+  "message": "Koneksi WhatsApp dimulai ulang tanpa menghapus sesi. Pantau GET /status hingga connected.",
+  "data": {
+    "previous_status": "disconnected",
+    "current_status": "connecting",
+    "connected": false
+  }
+}
+```
+> Reconnect berjalan asynchronous — pantau `GET /status` (polling ±2-4 detik) hingga `connected: true`. Jika sesi ternyata sudah tidak valid, gateway otomatis memunculkan QR baru (`qr_available: true`).
+
+---
+
 ### C. Pengiriman Pesan & Dokumen
 
 ---
 
-#### 8. Kirim Kode OTP (`POST /send-otp`)
+#### 9. Kirim Kode OTP (`POST /send-otp`)
 Mengirim pesan OTP resmi dengan format teks terstandarisasi DPRD.
 * **Autentikasi:** Wajib API Key
 * **Request Body:**
@@ -303,7 +329,7 @@ _Kode ini berlaku selama 5 menit. Jangan berikan kode ini kepada siapapun termas
 
 ---
 
-#### 9. Kirim Pesan Teks Bebas (`POST /send-message`)
+#### 10. Kirim Pesan Teks Bebas (`POST /send-message`)
 Mengirimkan pesan teks biasa atau pengumuman berformat WhatsApp Markdown (`*tebal*`, `_miring_`, `~coret~`).
 * **Autentikasi:** Wajib API Key
 * **Request Body:**
@@ -329,7 +355,7 @@ Mengirimkan pesan teks biasa atau pengumuman berformat WhatsApp Markdown (`*teba
 
 ---
 
-#### 10. Kirim Dokumen PDF / Undangan Rapat (`POST /send-document`)
+#### 11. Kirim Dokumen PDF / Undangan Rapat (`POST /send-document`)
 Mengirim berkas dokumen PDF (Surat Undangan Rapat Banmus, SK DPRD, Notulensi) dengan nama berkas dan teks pengantar.
 * **Autentikasi:** Wajib API Key
 * **Request Body:**
@@ -366,7 +392,7 @@ Mengirim berkas dokumen PDF (Surat Undangan Rapat Banmus, SK DPRD, Notulensi) de
 
 ---
 
-#### 11. Kirim Gambar / Dokumentasi (`POST /send-image`)
+#### 12. Kirim Gambar / Dokumentasi (`POST /send-image`)
 Mengirimkan gambar/foto dokumentasi kegiatan DPRD beserta *caption*.
 * **Autentikasi:** Wajib API Key
 * **Request Body:**
@@ -393,7 +419,7 @@ Mengirimkan gambar/foto dokumentasi kegiatan DPRD beserta *caption*.
 
 ---
 
-#### 12. Kirim Pesan Massal / Broadcast (`POST /send-bulk`)
+#### 13. Kirim Pesan Massal / Broadcast (`POST /send-bulk`)
 Mengirim pesan secara berurutan ke daftar penerima dengan proteksi **Randomized Jitter Delay (1.500ms – 2.300ms)** antar pesan untuk mencegah pemblokiran oleh Meta Anti-Spam.
 * **Autentikasi:** Wajib API Key
 * **Request Body:**
@@ -431,7 +457,7 @@ Mengirim pesan secara berurutan ke daftar penerima dengan proteksi **Randomized 
 
 ---
 
-#### 13. Cek Nomor Terdaftar di WhatsApp (`POST /check-number`)
+#### 14. Cek Nomor Terdaftar di WhatsApp (`POST /check-number`)
 Memeriksa apakah nomor telepon tertentu aktif dan terdaftar di WhatsApp Meta sebelum pesan dikirim.
 * **Autentikasi:** Wajib API Key
 * **Request Body:**

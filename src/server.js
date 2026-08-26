@@ -98,12 +98,13 @@ const sendLimiter = createRateLimiter({
   errMessage: 'Batas permintaan endpoint pengiriman per menit telah terlampaui.',
 });
 
-// Pairing code menumbuk endpoint pairing WhatsApp — sangat sensitif abuse
+// Cap untuk operasi device yang menumbuk endpoint WhatsApp sensitif:
+// pairing code, logout, dan restart koneksi
 const pairLimiter = createRateLimiter({
   windowMs: 60_000,
   max: envInt(process.env.RATE_LIMIT_PAIR_PER_MINUTE, 5),
   keyFn: clientIpKey,
-  errMessage: 'Batas permintaan pairing code per menit telah terlampaui.',
+  errMessage: 'Batas operasi device (pairing/logout/restart) per menit telah terlampaui.',
 });
 
 // Dedup OTP per nomor: cegah spam OTP beruntun ke nomor yang sama.
@@ -152,6 +153,7 @@ app.get('/', (req, res) => {
       pair_code: 'POST /pair-code (Protected)',
       check_number: 'POST /check-number (Protected)',
       logout: 'POST /logout (Protected)',
+      restart: 'POST /restart (Protected)',
     },
   });
 });
@@ -603,7 +605,7 @@ app.post('/check-number', requireAuth, sendLimiter, async (req, res) => {
 });
 
 // 13. Endpoint Logout & Reset Sesi
-app.post('/logout', requireAuth, async (req, res) => {
+app.post('/logout', requireAuth, pairLimiter, async (req, res) => {
   try {
     await waClient.logout();
     return res.json({
@@ -614,6 +616,31 @@ app.post('/logout', requireAuth, async (req, res) => {
     return res.status(500).json({
       status: 'error',
       message: error.message || 'Gagal melakukan logout sesi WhatsApp.',
+    });
+  }
+});
+
+// 14. Endpoint Restart Koneksi Tanpa Hapus Sesi
+// Untuk kasus koneksi macet namun kredensial masih valid — tidak perlu scan QR ulang.
+app.post('/restart', requireAuth, pairLimiter, async (req, res) => {
+  try {
+    const previousStatus = waClient.getStatus().status;
+    const currentStatus = await waClient.restart();
+
+    return res.json({
+      status: 'success',
+      message: 'Koneksi WhatsApp dimulai ulang tanpa menghapus sesi. Pantau GET /status hingga connected.',
+      data: {
+        previous_status: previousStatus,
+        current_status: currentStatus.status,
+        connected: currentStatus.connected,
+      },
+    });
+  } catch (error) {
+    return res.status(500).json({
+      status: 'error',
+      message: error.message || 'Gagal memulai ulang koneksi WhatsApp.',
+      code: 'RESTART_FAILED',
     });
   }
 });

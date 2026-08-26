@@ -24,6 +24,7 @@ class WhatsAppClient {
     this.msgRetryCounterCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
     this.reconnectAttempts = 0;
     this.maxReconnectDelay = 15000;
+    this.lastDisconnect = null;
   }
 
   async init() {
@@ -54,8 +55,13 @@ class WhatsAppClient {
     // Simpan kredensial saat ada pembaruan sesi
     this.sock.ev.on('creds.update', saveCreds);
 
+    // Referensi socket untuk handler ini — dipakai membedakan event dari
+    // socket aktif vs socket lama yang sudah diganti lewat restart/logout,
+    // supaya event close terlambat tidak memicu koneksi ganda.
+    const socket = this.sock;
+
     // Monitor pembaruan koneksi
-    this.sock.ev.on('connection.update', async (update) => {
+    socket.ev.on('connection.update', async (update) => {
       const { connection, lastDisconnect, qr } = update;
 
       if (qr) {
@@ -89,6 +95,13 @@ class WhatsAppClient {
       }
 
       if (connection === 'close') {
+        // Event close dari socket yang sudah diganti (restart/logout) diabaikan —
+        // koneksi penggantinya sudah ditangani oleh pemanggil operasi tersebut.
+        if (this.sock !== socket) {
+          console.log('[WA-GATEWAY] Event close dari socket lama diabaikan (sudah diganti).');
+          return;
+        }
+
         const boomError = lastDisconnect?.error instanceof Boom ? lastDisconnect.error : null;
         const statusCode = boomError?.output?.statusCode || lastDisconnect?.error?.output?.statusCode;
         const isLoggedOut = statusCode === DisconnectReason.loggedOut;
@@ -96,6 +109,13 @@ class WhatsAppClient {
 
         this.status = 'disconnected';
         this.user = null;
+
+        // Jejak disconnect terakhir — dipakai panel admin mendiagnosis penyebab putus
+        this.lastDisconnect = {
+          at: new Date().toISOString(),
+          code: statusCode ?? null,
+          reason: lastDisconnect?.error?.message || 'Unknown',
+        };
 
         console.warn(`[WA-GATEWAY] ⚠️ Koneksi terputus. Kode status: ${statusCode} (${lastDisconnect?.error?.message || 'Unknown'})`);
 
@@ -382,12 +402,46 @@ class WhatsAppClient {
   }
 
   /**
+   * Restart koneksi TANPA menghapus sesi — untuk kasus koneksi macet
+   * tetapi kredensial masih valid, sehingga tidak perlu scan QR ulang.
+   */
+  async restart() {
+    const socket = this.sock;
+
+    if (socket) {
+      // Kosongkan referensi dulu agar event close dari socket lama
+      // diabaikan handler (this.sock !== socket) dan tidak terjadi koneksi ganda.
+      this.sock = null;
+      try {
+        socket.end(undefined);
+      } catch (e) {
+        // Socket lama boleh sudah mati — biarkan
+      }
+    }
+
+    this.status = 'disconnected';
+    this.qrRaw = null;
+    this.qrDataUrl = null;
+    this.reconnectAttempts = 0;
+
+    await this.init();
+    return this.getStatus();
+  }
+
+  /**
    * Logout dan bersihkan sesi di folder disk
    */
   async logout() {
+    const socket = this.sock;
+
+    // Lepas referensi sebelum logout() supaya event close yang dipicu
+    // socket ini diabaikan handler — tanpa ini, handler menjadwalkan init()
+    // ganda berbarengan dengan init() milik logout di bawah.
+    this.sock = null;
+
     try {
-      if (this.sock) {
-        await this.sock.logout();
+      if (socket) {
+        await socket.logout();
       }
     } catch (e) {
       // Abaikan jika koneksi sudah terputus
@@ -418,6 +472,7 @@ class WhatsAppClient {
       connected: this.status === 'connected',
       user: this.user,
       qr_available: !!this.qrDataUrl,
+      last_disconnect: this.lastDisconnect || null,
     };
   }
 }

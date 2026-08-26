@@ -3,7 +3,7 @@
 Microservice pengirim pesan WhatsApp OTP, notifikasi, dokumen PDF, dan broadcast mandiri untuk ekosistem **DPRD Signage & Agenda**, dibangun di atas **Baileys v7 (`@whiskeysockets/baileys`)** dan **Express 5**.
 
 > 📚 **Dokumen Terkait:**
-> * 📄 **[DOKUMENTASI_API.md](./DOKUMENTASI_API.md)** — Spesifikasi detail 13 endpoint REST API, tabel parameter, kode error, dan contoh integrasi (PHP CodeIgniter 4, Node.js, cURL).
+> * 📄 **[DOKUMENTASI_API.md](./DOKUMENTASI_API.md)** — Spesifikasi detail 14 endpoint REST API, tabel parameter, kode error, dan contoh integrasi (PHP CodeIgniter 4, Node.js, cURL).
 > * 📖 **[MODUL_PEMBELAJARAN_ARSITEKTUR_BAILEYS.md](./MODUL_PEMBELAJARAN_ARSITEKTUR_BAILEYS.md)** — Modul edukasi mendalam mengenai protokol WhatsApp, Signal Protocol E2EE, arsitektur Baileys v7, LIDs, dan strategi anti-ban.
 
 ---
@@ -99,6 +99,7 @@ Semua endpoint pengiriman dilindungi oleh API Key via header `x-api-key` atau `A
 | `POST` | `/pair-code` | Request 8-digit Pairing Code tanpa kamera |
 | `POST` | `/check-number` | Validasi apakah nomor HP terdaftar di WhatsApp |
 | `POST` | `/logout` | Logout sesi & bersihkan storage disk |
+| `POST` | `/restart` | Restart koneksi tanpa menghapus sesi (tanpa scan ulang) |
 
 > 📖 Untuk contoh JSON request/response lengkap, silakan buka **[DOKUMENTASI_API.md](./DOKUMENTASI_API.md)**.
 
