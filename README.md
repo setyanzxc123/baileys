@@ -63,11 +63,14 @@ TRUST_PROXY=false
 # Mode Development (auto-reload saat kode diubah)
 npm run dev
 
-# Mode Production biasa
+# Mode Production biasa (hanya gateway)
 npm start
 
-# Mode Production Background Daemon (PM2)
+# Mode Production PM2 (menjalankan gateway + health monitor daemon)
 pm2 start ecosystem.config.cjs
+
+# Mode Production PM2 (gateway saja tanpa monitor)
+pm2 start ecosystem.config.cjs --only dprd-wa-gateway
 ```
 
 ---
@@ -105,7 +108,7 @@ Semua endpoint kecuali `/` dan `/health` dilindungi oleh API Key via header `x-a
 | `GET` | `/health` | Health check, Uptime, & RAM Heap Memory metrics |
 | `GET` | `/status` | Cek kondisi koneksi WhatsApp + `last_disconnect` (Protected) |
 | `GET` | `/qr/raw` | QR pairing JSON `qr_data_url` untuk dirender panel admin (Protected) |
-| `POST` | `/send-otp` | Kirim kode OTP format baku DPRD |
+| `POST` | `/send-otp` | Kirim kode OTP format baku DPRD (format 4–8 digit angka) |
 | `POST` | `/send-message` | Kirim pesan teks bebas / pengumuman markdown |
 | `POST` | `/send-document` | Kirim dokumen PDF / Surat Undangan Rapat |
 | `POST` | `/send-image` | Kirim foto dokumentasi kegiatan + caption |
@@ -140,6 +143,23 @@ curl -X POST http://localhost:3001/check-number \
 
 ---
 
+## 🛡️ Operasional & Monitoring Produksi
+
+### 1. Health & WhatsApp Monitor Daemon (`scripts/monitor.js`)
+Service `dprd-wa-monitor` di PM2 memantau endpoint `GET /health` setiap 30 detik (dapat diatur via `MONITOR_INTERVAL_MS`).
+* Mendeteksi jika gateway mati (`HEALTH_DOWN`) atau WhatsApp terputus lebih lama dari ambang batas (default 5 menit / `MONITOR_OFFLINE_THRESHOLD_MS`).
+* Mengirimkan notifikasi JSON via webhook jika `MONITOR_WEBHOOK_URL` diisi di `.env`.
+
+### 2. Backup Sesi Kredensial Otomatis (`scripts/backup-sessions.sh`)
+Folder `sessions/` menyimpan kunci enkripsi Signal Protocol hasil pairing. Kehilangan folder ini berarti harus pairing ulang.
+* Skrip `scripts/backup-sessions.sh` mengompres folder sesi ke format `.tar.gz` di folder `backups/` dengan hak akses aman (`umask 077`) dan retensi otomatis 14 backup terakhir.
+* Tambahkan ke cron server (misal setiap pukul 03.00 malam):
+```cron
+0 3 * * * cd /path/to/baileys && ./scripts/backup-sessions.sh >> /var/log/wa-backup.log 2>&1
+```
+
+---
+
 ## 🧪 Pengujian Otomatis (Automated Tests)
 
 > ⚠️ Ini adalah **test integrasi**, bukan unit test — server harus sedang berjalan lebih dulu.
@@ -153,3 +173,4 @@ npm test
 ```
 
 Test keluar dengan **exit code `1`** bila ada assertion yang gagal atau server tidak dapat dihubungi, sehingga aman dipakai sebagai gate di CI. Variabel opsional `TEST_BASE_URL` (default `http://localhost:3001`) bisa dipakai untuk menunjuk server lain.
+
