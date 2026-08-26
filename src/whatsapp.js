@@ -91,7 +91,7 @@ class WhatsAppClient {
           phone,
         };
 
-        console.log(`[WA-GATEWAY] ✅ WhatsApp TERHUBUNG! Nomor pengirim: +${phone}`);
+        console.log(`[WA-GATEWAY] WhatsApp TERHUBUNG! Nomor pengirim: +${phone}`);
       }
 
       if (connection === 'close') {
