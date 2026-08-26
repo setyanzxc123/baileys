@@ -1,164 +1,195 @@
-import assert from 'assert';
+/**
+ * Smoke test INTEGRASI untuk DPRD WhatsApp Gateway (Baileys v7).
+ *
+ * Test ini memanggil HTTP server yang sedang berjalan — bukan unit test:
+ *   1. Pastikan .env terisi (API_KEY wajib).
+ *   2. Jalankan server: npm start
+ *   3. Jalankan test:  npm test
+ *
+ * Exit code 1 bila ada assertion gagal atau server tidak dapat dihubungi,
+ * sehingga aman dipakai sebagai gate di CI.
+ *
+ * Catatan: seksi OTP memicu percobaan kirim nyata ke nomor sampel. Saat
+ * gateway sedang online, percobaan itu benar-benar menghubungi server
+ * WhatsApp — gunakan nomor sampel seperti di bawah, jangan nomor produksi.
+ */
+import assert from 'node:assert';
 import 'dotenv/config';
 
-console.log('🧪 Memulai Automated Smoke Test Suite untuk DPRD WhatsApp Gateway (Baileys v7)...');
+const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3001';
+const API_KEY = process.env.API_KEY;
 
-async function runTests() {
-  const BASE_URL = 'http://localhost:3001';
-  const API_KEY = process.env.API_KEY;
+const tests = [];
+const test = (name, fn) => tests.push({ name, fn });
 
-  if (!API_KEY) {
-    console.error('❌ API_KEY tidak ditemukan. Isi di file .env lalu jalankan ulang — server menolak berjalan tanpa kunci.');
+const jsonPost = (path, body, headers = {}) =>
+  fetch(`${BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...headers },
+    body: JSON.stringify(body),
+  });
+
+// Nomor sampel acak per-run agar bucket cooldown OTP dari run sebelumnya
+// tidak membuat run berikutnya false-fail dengan 429 di permintaan pertama.
+const samplePhone = () => `08123${Math.floor(100000 + Math.random() * 900000)}`;
+
+// ============================================================
+// Test Cases
+// ============================================================
+
+test('GET / — service discovery mengembalikan katalog endpoint', async () => {
+  const res = await fetch(`${BASE_URL}/`);
+  const data = await res.json();
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(data.engine, 'Baileys v7');
+  assert.strictEqual(data.status, 'running');
+  for (const key of ['send_otp', 'send_document', 'send_image', 'send_bulk']) {
+    assert.ok(data.endpoints?.[key], `endpoint '${key}' hilang dari discovery`);
+  }
+});
+
+test('GET /health — health check mengembalikan status ok + metrik memori', async () => {
+  const res = await fetch(`${BASE_URL}/health`);
+  const data = await res.json();
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(data.status, 'ok');
+  assert.ok(data.uptime_seconds >= 0);
+  assert.ok(Number(data.memory?.heap_used_mb) >= 0);
+});
+
+test('POST /send-otp tanpa API key — ditolak 401', async () => {
+  const res = await jsonPost('/send-otp', { phone: '08123456789', otp: '123456' });
+  assert.strictEqual(res.status, 401);
+});
+
+test('POST /send-document dengan API key salah — ditolak 401', async () => {
+  const res = await jsonPost(
+    '/send-document',
+    { phone: '08123456789', url: 'https://example.com/doc.pdf' },
+    { 'x-api-key': 'wrong_key' }
+  );
+  assert.strictEqual(res.status, 401);
+});
+
+test('GET /status dan /qr/raw tanpa API key — ditolak 401 (headless protected)', async () => {
+  assert.strictEqual((await fetch(`${BASE_URL}/status`)).status, 401);
+  assert.strictEqual((await fetch(`${BASE_URL}/qr/raw`)).status, 401);
+});
+
+test('GET /qr (halaman HTML) — sudah dihapus, 404', async () => {
+  assert.strictEqual((await fetch(`${BASE_URL}/qr`)).status, 404);
+});
+
+test('POST /send-otp tanpa parameter otp — 422', async () => {
+  const res = await jsonPost('/send-otp', { phone: '08123456789' }, { 'x-api-key': API_KEY });
+  assert.strictEqual(res.status, 422);
+});
+
+test('POST /send-document tanpa document_url — 422', async () => {
+  const res = await jsonPost('/send-document', { phone: '08123456789' }, { 'x-api-key': API_KEY });
+  assert.strictEqual(res.status, 422);
+});
+
+test('POST /send-bulk dengan array kosong — 422', async () => {
+  const res = await jsonPost('/send-bulk', { recipients: [] }, { 'x-api-key': API_KEY });
+  assert.strictEqual(res.status, 422);
+});
+
+test('POST /send-otp saat gateway offline — fast-fail 503 WA_GATEWAY_OFFLINE', async () => {
+  const statusRes = await fetch(`${BASE_URL}/status`, { headers: { 'x-api-key': API_KEY } });
+  const status = await statusRes.json();
+
+  // Saat gateway online, request ini akan mengirim OTP sungguhan — dilewati.
+  if (status.data?.connected) {
+    return {
+      skipped: true,
+      reason: 'gateway sedang online — fast-fail offline tidak diuji agar tidak mengirim OTP nyata',
+    };
+  }
+
+  const res = await jsonPost('/send-otp', { phone: samplePhone(), otp: '123456' }, { 'x-api-key': API_KEY });
+  const data = await res.json();
+  assert.strictEqual(res.status, 503);
+  assert.strictEqual(data.code, 'WA_GATEWAY_OFFLINE');
+});
+
+test('POST /send-otp cooldown — OTP kedua ke nomor sama ditolak 429 OTP_COOLDOWN', async () => {
+  const body = { phone: samplePhone(), otp: '555111' };
+  const headers = { 'x-api-key': API_KEY };
+
+  const resFirst = await jsonPost('/send-otp', body, headers);
+  // 200 = online & terkirim, 500 = online tapi nomor sampel tidak terdaftar,
+  // 503 = gateway offline. Ketiganya valid untuk permintaan pertama.
+  assert.ok(
+    [200, 500, 503].includes(resFirst.status),
+    `permintaan pertama diharapkan 200/500/503, didapat ${resFirst.status}`
+  );
+
+  const resSecond = await jsonPost('/send-otp', body, headers);
+  const dataSecond = await resSecond.json();
+  assert.strictEqual(resSecond.status, 429);
+  assert.strictEqual(dataSecond.code, 'OTP_COOLDOWN');
+});
+
+test('POST /restart — koneksi dimulai ulang tanpa hapus sesi', async () => {
+  const res = await fetch(`${BASE_URL}/restart`, { method: 'POST', headers: { 'x-api-key': API_KEY } });
+  const data = await res.json();
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(data.status, 'success');
+  assert.ok(
+    ['connecting', 'qr_ready', 'connected'].includes(data.data?.current_status),
+    `current_status tak terduga: ${data.data?.current_status}`
+  );
+});
+
+// ============================================================
+// Runner
+// ============================================================
+
+const run = async () => {
+  console.log(`🧪 Smoke Test Integrasi — DPRD WhatsApp Gateway (Baileys v7) → ${BASE_URL}\n`);
+
+  if (!API_KEY || API_KEY.trim() === '') {
+    console.error('❌ API_KEY tidak ditemukan di .env. Server menolak berjalan tanpa kunci — isi dulu sebelum testing.');
     process.exit(1);
   }
 
-  console.log('\n--- 1. Testing Root Discovery Endpoint (GET /) ---');
+  // Pastikan server hidup sebelum menyalahkan gateway dengan assertion gagal.
   try {
-    const res = await fetch(`${BASE_URL}/`);
-    const data = await res.json();
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(data.engine, 'Baileys v7');
-    assert.strictEqual(data.status, 'running');
-    assert.ok(data.endpoints.send_document);
-    assert.ok(data.endpoints.send_image);
-    assert.ok(data.endpoints.send_bulk);
-    console.log('✅ GET / responded with 200 OK and discovery data.');
+    const res = await fetch(`${BASE_URL}/health`, { signal: AbortSignal.timeout(3000) });
+    if (!res.ok) throw new Error(`GET /health menjawab ${res.status}`);
   } catch (e) {
-    console.error('❌ GET / failed:', e.message);
+    console.error(`❌ Server tidak dapat dihubungi di ${BASE_URL} (${e.message}).`);
+    console.error('   Ini test integrasi — jalankan `npm start` di terminal terpisah dulu, lalu ulangi `npm test`.');
+    process.exit(1);
   }
 
-  console.log('\n--- 2. Testing Health Check (GET /health) ---');
-  try {
-    const res = await fetch(`${BASE_URL}/health`);
-    const data = await res.json();
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(data.status, 'ok');
-    assert.ok(data.uptime_seconds >= 0);
-    assert.ok(data.memory.heap_used_mb);
-    console.log(`✅ GET /health responded with 200 OK. RAM Heap: ${data.memory.heap_used_mb}MB`);
-  } catch (e) {
-    console.error('❌ GET /health failed:', e.message);
+  let failed = 0;
+  let skipped = 0;
+
+  for (const { name, fn } of tests) {
+    try {
+      const outcome = await fn();
+      if (outcome?.skipped) {
+        skipped++;
+        console.log(`⏭️  SKIP: ${name} — ${outcome.reason}`);
+      } else {
+        console.log(`✅ ${name}`);
+      }
+    } catch (e) {
+      failed++;
+      console.error(`❌ ${name}\n   ↳ ${e.message}`);
+    }
   }
 
-  console.log('\n--- 3. Testing API Key Security Authentication ---');
-  try {
-    // Tanpa API Key -> 401
-    const resNoKey = await fetch(`${BASE_URL}/send-otp`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ phone: '08123456789', otp: '123456' }),
-    });
-    assert.strictEqual(resNoKey.status, 401);
-    console.log('✅ POST /send-otp without API key rejected with 401 Unauthorized.');
+  console.log(`\nHasil: ${tests.length - skipped - failed} lulus, ${failed} gagal, ${skipped} dilewati.`);
 
-    // Kunci API Salah -> 401
-    const resBadKey = await fetch(`${BASE_URL}/send-document`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': 'wrong_key' },
-      body: JSON.stringify({ phone: '08123456789', url: 'https://example.com/doc.pdf' }),
-    });
-    assert.strictEqual(resBadKey.status, 401);
-    console.log('✅ POST /send-document with invalid API key rejected with 401 Unauthorized.');
-
-    // Endpoint device headless tanpa key -> 401 (/status & /qr/raw kini Protected)
-    const resStatus = await fetch(`${BASE_URL}/status`);
-    assert.strictEqual(resStatus.status, 401);
-    const resQrRaw = await fetch(`${BASE_URL}/qr/raw`);
-    assert.strictEqual(resQrRaw.status, 401);
-    console.log('✅ GET /status dan GET /qr/raw tanpa API key ditolak 401 (headless protected).');
-
-    // Halaman HTML /qr sudah dihapus (mode headless penuh) -> 404
-    const resQrPage = await fetch(`${BASE_URL}/qr`);
-    assert.strictEqual(resQrPage.status, 404);
-    console.log('✅ GET /qr (halaman HTML) sudah tidak ada (404) — gateway full headless.');
-  } catch (e) {
-    console.error('❌ Authentication test failed:', e.message);
+  if (failed > 0) {
+    console.error('💥 SMOKE TEST GAGAL.');
+    process.exit(1);
   }
 
-  console.log('\n--- 4. Testing Input Validation (422 Unprocessable Content) ---');
-  try {
-    // Missing OTP
-    const resMissingOtp = await fetch(`${BASE_URL}/send-otp`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: JSON.stringify({ phone: '08123456789' }),
-    });
-    assert.strictEqual(resMissingOtp.status, 422);
-    console.log('✅ POST /send-otp without OTP parameter returned 422.');
+  console.log('🎉 Semua smoke test yang relevan LULUS.');
+};
 
-    // Missing Document URL
-    const resMissingDocUrl = await fetch(`${BASE_URL}/send-document`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: JSON.stringify({ phone: '08123456789' }),
-    });
-    assert.strictEqual(resMissingDocUrl.status, 422);
-    console.log('✅ POST /send-document without document_url returned 422.');
-
-    // Invalid Bulk Recipients
-    const resBadBulk = await fetch(`${BASE_URL}/send-bulk`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: JSON.stringify({ recipients: [] }),
-    });
-    assert.strictEqual(resBadBulk.status, 422);
-    console.log('✅ POST /send-bulk with empty array returned 422.');
-  } catch (e) {
-    console.error('❌ Validation test failed:', e.message);
-  }
-
-  console.log('\n--- 5. Testing Offline Fast-Fail Handling ---');
-  try {
-    const resSend = await fetch(`${BASE_URL}/send-otp`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: JSON.stringify({ phone: '08123456789', otp: '123456' }),
-    });
-    const data = await resSend.json();
-    assert.strictEqual(resSend.status, 503);
-    assert.strictEqual(data.code, 'WA_GATEWAY_OFFLINE');
-    console.log('✅ POST /send-otp when offline gracefully returns 503 (WA_GATEWAY_OFFLINE).');
-  } catch (e) {
-    console.error('❌ Offline handling test failed:', e.message);
-  }
-
-  console.log('\n--- 6. Testing OTP Rate Limit Cooldown (429 per nomor) ---');
-  try {
-    // Nomor unik khusus seksi ini agar bucket cooldown tidak bentrok dengan seksi lain
-    const opts = {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: JSON.stringify({ phone: '081239990006', otp: '555111' }),
-    };
-
-    const resFirst = await fetch(`${BASE_URL}/send-otp`, opts);
-    console.log(`ℹ️  Kirim OTP pertama -> ${resFirst.status} (503 offline / 200 online, keduanya valid).`);
-
-    const resSecond = await fetch(`${BASE_URL}/send-otp`, opts);
-    const dataSecond = await resSecond.json();
-    assert.strictEqual(resSecond.status, 429);
-    assert.strictEqual(dataSecond.code, 'OTP_COOLDOWN');
-    console.log('✅ OTP kedua ke nomor yang sama dalam cooldown ditolak 429 (OTP_COOLDOWN).');
-  } catch (e) {
-    console.error('❌ OTP cooldown test failed:', e.message);
-  }
-
-  console.log('\n--- 7. Testing Device Restart Endpoint (reconnect tanpa hapus sesi) ---');
-  try {
-    const res = await fetch(`${BASE_URL}/restart`, {
-      method: 'POST',
-      headers: { 'x-api-key': API_KEY },
-    });
-    const data = await res.json();
-    assert.strictEqual(res.status, 200);
-    assert.strictEqual(data.status, 'success');
-    assert.ok(['connecting', 'qr_ready', 'connected'].includes(data.data.current_status));
-    console.log(`✅ POST /restart returned 200 (status kini: ${data.data.current_status}).`);
-  } catch (e) {
-    console.error('❌ Restart endpoint test failed:', e.message);
-  }
-
-  console.log('\n🎉 ALL SMOKE TESTS PASSED SUCCESSFULLY! 🚀');
-}
-
-runTests();
+run();

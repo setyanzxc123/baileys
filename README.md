@@ -140,7 +140,14 @@ curl -X POST http://localhost:3001/check-number \
 
 ## 🧪 Pengujian Otomatis (Automated Tests)
 
-Jalankan seluruh test suite endpoint:
+> ⚠️ Ini adalah **test integrasi**, bukan unit test — server harus sedang berjalan lebih dulu.
+
 ```bash
+# Terminal 1: pastikan .env terisi, lalu jalankan server
+npm start
+
+# Terminal 2: jalankan test suite
 npm test
 ```
+
+Test keluar dengan **exit code `1`** bila ada assertion yang gagal atau server tidak dapat dihubungi, sehingga aman dipakai sebagai gate di CI. Variabel opsional `TEST_BASE_URL` (default `http://localhost:3001`) bisa dipakai untuk menunjuk server lain.
