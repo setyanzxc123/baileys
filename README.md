@@ -16,7 +16,7 @@ Microservice pengirim pesan WhatsApp OTP, notifikasi, dokumen PDF, dan broadcast
   * **QR Code JSON:** `GET /qr/raw` (Protected) mengembalikan `qr_data_url` siap render di panel admin Anda.
   * **8-Digit Pairing Code:** Menautkan nomor WhatsApp tanpa scan kamera via `POST /pair-code`.
 * 📄 **Dukungan Media & Berkas:** Kirim dokumen PDF (Surat Undangan Rapat / SK) dan gambar secara *streaming*.
-* 📢 **Broadcast Massal:** Endpoint `POST /send-bulk` dilengkapi *randomized jitter delay* (1.500ms – 2.300ms) untuk mencegah Meta anti-spam.
+* 📢 **Broadcast Massal:** Endpoint `POST /send-bulk` dilengkapi *randomized jitter delay* (1.500ms – 2.300ms) untuk mencegah Meta anti-spam; maksimal **100 penerima per permintaan** (`BULK_MAX_RECIPIENTS`) dan `delay_ms` minimal 1000ms.
 * 🛡️ **REST API Terproteksi:** Autentikasi API Key via header `x-api-key` atau `Authorization: Bearer <token>`.
 * 🚦 **Rate Limiting Bawaan:** Cap per IP untuk endpoint kirim & pairing, plus dedup OTP per nomor (cooldown 60 detik, maks 5/jam) — respons 429 dengan header `Retry-After`.
 * 📊 **Monitoring Realtime:** Endpoint `GET /health` menyertakan info *uptime* dan penggunaan memori RAM Heap Node.js.
@@ -48,6 +48,7 @@ RATE_LIMIT_SEND_PER_MINUTE=60
 RATE_LIMIT_PAIR_PER_MINUTE=5
 OTP_COOLDOWN_SECONDS=60
 OTP_MAX_PER_PHONE_PER_HOUR=5
+BULK_MAX_RECIPIENTS=100
 TRUST_PROXY=false
 ```
 
@@ -107,7 +108,7 @@ Semua endpoint kecuali `/` dan `/health` dilindungi oleh API Key via header `x-a
 | `POST` | `/send-message` | Kirim pesan teks bebas / pengumuman markdown |
 | `POST` | `/send-document` | Kirim dokumen PDF / Surat Undangan Rapat |
 | `POST` | `/send-image` | Kirim foto dokumentasi kegiatan + caption |
-| `POST` | `/send-bulk` | Kirim pesan massal dengan anti-spam jitter delay |
+| `POST` | `/send-bulk` | Kirim pesan massal dengan anti-spam jitter delay (maks 100 penerima/permintaan, `delay_ms` ≥ 1000) |
 | `POST` | `/pair-code` | Request 8-digit Pairing Code tanpa kamera |
 | `POST` | `/check-number` | Validasi apakah nomor HP terdaftar di WhatsApp |
 | `POST` | `/logout` | Logout sesi & bersihkan storage disk |

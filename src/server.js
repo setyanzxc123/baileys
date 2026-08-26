@@ -132,6 +132,13 @@ const otpHourly = createRateLimiter({
   errMessage: 'Batas maksimum OTP per nomor dalam satu jam telah tercapai.',
 });
 
+// Batas /send-bulk: permintaan dengan ribuan penerima menggantung satu
+// koneksi HTTP berjam-jam (timeout di reverse proxy) dan memicu spam ban
+// nomor institusi. Floor delay adalah batas keamanan, bukan preferensi —
+// jeda di bawahnya menetralkan jitter anti-spam.
+const BULK_MAX_RECIPIENTS = envInt(process.env.BULK_MAX_RECIPIENTS, 100);
+const BULK_MIN_DELAY_MS = 1000;
+
 // 1. Root Info & Endpoints Discovery
 app.get('/', (req, res) => {
   res.json({
@@ -353,6 +360,23 @@ app.post('/send-bulk', requireAuth, sendLimiter, async (req, res) => {
     });
   }
 
+  if (recipients.length > BULK_MAX_RECIPIENTS) {
+    return res.status(422).json({
+      status: 'error',
+      code: 'BULK_TOO_MANY_RECIPIENTS',
+      message: `Maksimal ${BULK_MAX_RECIPIENTS} penerima per permintaan (diterima: ${recipients.length}). Pecah pengiriman menjadi beberapa permintaan bertahap.`,
+    });
+  }
+
+  const delay = Number(delay_ms);
+  if (delay_ms !== undefined && (!Number.isFinite(delay) || delay < BULK_MIN_DELAY_MS)) {
+    return res.status(422).json({
+      status: 'error',
+      code: 'BULK_DELAY_TOO_SHORT',
+      message: `Parameter 'delay_ms' minimal ${BULK_MIN_DELAY_MS} ms agar jeda anti-spam antar pesan tetap efektif.`,
+    });
+  }
+
   try {
     const result = await waClient.sendBulk(recipients, delay_ms || 1500);
     return res.json({
@@ -511,13 +535,37 @@ const server = app.listen(PORT, () => {
 });
 
 // Graceful shutdown handling
-const handleShutdown = () => {
-  console.log('\n[WA-GATEWAY] Menutup server secara aman...');
+// Koneksi HTTP keep-alive yang idle menahan callback server.close()
+// selamanya — tanpa memutus semua koneksi + batas waktu, proses bisa
+// menggantung saat dihentikan PM2/systemd hingga akhirnya dibunuh SIGKILL
+// tanpa sempat menutup koneksi WhatsApp.
+let shuttingDown = false;
+const handleShutdown = (signal) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`\n[WA-GATEWAY] Menerima sinyal ${signal}. Menutup server secara aman...`);
+
+  // Jaring pengaman: keluar paksa bila penutupan bersih macet lebih dari 10 detik.
+  setTimeout(() => {
+    console.error('[WA-GATEWAY] Timeout penutupan 10 detik terlampaui — keluar paksa.');
+    process.exit(1);
+  }, 10_000);
+
+  // Putuskan semua koneksi (termasuk keep-alive idle) lalu berhenti menerima.
+  server.closeAllConnections?.();
   server.close(() => {
     console.log('[WA-GATEWAY] HTTP Server ditutup.');
-    process.exit(0);
   });
+
+  // Tutup socket WhatsApp tanpa logout — kredensial tetap tersimpan di disk.
+  waClient.shutdown();
+
+  // Beri jeda singkat agar frame close dan log sempat ter-flush sebelum keluar.
+  setTimeout(() => {
+    console.log('[WA-GATEWAY] Proses berhenti.');
+    process.exit(0);
+  }, 500);
 };
 
-process.on('SIGINT', handleShutdown);
-process.on('SIGTERM', handleShutdown);
+process.on('SIGINT', () => handleShutdown('SIGINT'));
+process.on('SIGTERM', () => handleShutdown('SIGTERM'));

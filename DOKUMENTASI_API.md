@@ -414,6 +414,7 @@ Mengirimkan gambar/foto dokumentasi kegiatan DPRD beserta *caption*.
 #### 12. Kirim Pesan Massal / Broadcast (`POST /send-bulk`)
 Mengirim pesan secara berurutan ke daftar penerima dengan proteksi **Randomized Jitter Delay (1.500ms – 2.300ms)** antar pesan untuk mencegah pemblokiran oleh Meta Anti-Spam.
 * **Autentikasi:** Wajib API Key
+* **Batasan:** Maksimal **100 penerima per permintaan** (dapat diatur via `BULK_MAX_RECIPIENTS`) dan `delay_ms` minimal **1000 ms** — melebihi/melanggarnya ditolak `422` dengan kode `BULK_TOO_MANY_RECIPIENTS` / `BULK_DELAY_TOO_SHORT`. Pecah broadcast besar menjadi beberapa permintaan bertahap.
 * **Request Body:**
 ```json
 {

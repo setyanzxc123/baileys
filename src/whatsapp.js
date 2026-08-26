@@ -24,6 +24,7 @@ class WhatsAppClient {
     this.reconnectAttempts = 0;
     this.maxReconnectDelay = 15000;
     this.lastDisconnect = null;
+    this.reconnectTimer = null;
   }
 
   async init() {
@@ -127,11 +128,15 @@ class WhatsAppClient {
           console.log('[WA-GATEWAY] Restart required oleh server WhatsApp (515). Reconnecting instan...');
           this.init();
         } else {
-          // Reconnect otomatis dengan exponential backoff
+          // Reconnect otomatis dengan exponential backoff.
+          // Timer dicatat agar shutdown/restart bisa membatalkan reconnect
+          // yang tertunda — tanpa ini proses berhenti bisa 'hidup lagi'
+          // lewat koneksi baru yang muncul di tengah penutupan.
+          if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
           const delay = Math.min(3000 * Math.pow(1.5, this.reconnectAttempts), this.maxReconnectDelay);
           this.reconnectAttempts++;
           console.log(`[WA-GATEWAY] Mencoba menghubungkan kembali dalam ${(delay / 1000).toFixed(1)} detik (Percobaan #${this.reconnectAttempts})...`);
-          setTimeout(() => this.init(), delay);
+          this.reconnectTimer = setTimeout(() => this.init(), delay);
         }
       }
     });
@@ -383,7 +388,7 @@ class WhatsAppClient {
         results.push({ phone, success: false, error: err.message });
       }
 
-      // Jeda waktu teracak (jitter 1000ms - 2000ms) untuk mencegah Meta anti-spam
+      // Jeda waktu teracak (jitter = delay dasar + 0-800ms acak) untuk mencegah Meta anti-spam
       if (i < recipients.length - 1) {
         const jitter = defaultDelayMs + Math.floor(Math.random() * 800);
         await sleep(jitter);
@@ -405,6 +410,12 @@ class WhatsAppClient {
    * tetapi kredensial masih valid, sehingga tidak perlu scan QR ulang.
    */
   async restart() {
+    // Batalkan reconnect tertunda supaya tidak balapan dengan init() baru.
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
     const socket = this.sock;
 
     if (socket) {
@@ -451,7 +462,39 @@ class WhatsAppClient {
     this.qrRaw = null;
     this.qrDataUrl = null;
     // Inisialisasi ulang untuk QR baru
-    setTimeout(() => this.init(), 1000);
+    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = setTimeout(() => this.init(), 1000);
+  }
+
+  /**
+   * Matikan koneksi secara bersih TANPA logout — dipanggil saat proses
+   * server berhenti (SIGINT/SIGTERM). Kredensial tetap tersimpan di disk
+   * lewat creds.update, jadi start berikutnya langsung reconnect tanpa
+   * scan ulang, dan perangkat tidak dibiarkan 'online menggantung'
+   * di sisi Meta.
+   */
+  shutdown() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+
+    const socket = this.sock;
+    // Lepas referensi dulu agar event close yang dipicu end() diabaikan
+    // handler connection.update (this.sock !== socket) dan tidak
+    // menjadwalkan koneksi baru di tengah proses shutdown.
+    this.sock = null;
+    this.status = 'disconnected';
+
+    if (socket) {
+      try {
+        socket.end(undefined);
+      } catch (e) {
+        // Socket sudah mati pun tidak masalah
+      }
+    }
+
+    console.log('[WA-GATEWAY] Koneksi WhatsApp ditutup tanpa logout.');
   }
 
   clearSession() {

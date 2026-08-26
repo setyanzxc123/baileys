@@ -129,6 +129,27 @@ test('POST /send-bulk dengan array kosong — 422', async () => {
   assert.strictEqual(res.status, 422);
 });
 
+test('POST /send-bulk melebihi batas penerima — 422 BULK_TOO_MANY_RECIPIENTS', async () => {
+  const configured = Number(process.env.BULK_MAX_RECIPIENTS);
+  const cap = Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 100;
+  const recipients = Array.from({ length: cap + 1 }, () => ({ phone: '08123456789', message: 'tes' }));
+  const res = await jsonPost('/send-bulk', { recipients }, { 'x-api-key': API_KEY });
+  const data = await res.json();
+  assert.strictEqual(res.status, 422);
+  assert.strictEqual(data.code, 'BULK_TOO_MANY_RECIPIENTS');
+});
+
+test('POST /send-bulk delay_ms di bawah floor anti-spam — 422 BULK_DELAY_TOO_SHORT', async () => {
+  const res = await jsonPost(
+    '/send-bulk',
+    { recipients: [{ phone: '08123456789', message: 'tes' }], delay_ms: 50 },
+    { 'x-api-key': API_KEY }
+  );
+  const data = await res.json();
+  assert.strictEqual(res.status, 422);
+  assert.strictEqual(data.code, 'BULK_DELAY_TOO_SHORT');
+});
+
 test('POST /send-otp saat gateway offline — fast-fail 503 WA_GATEWAY_OFFLINE', async () => {
   const statusRes = await fetch(`${BASE_URL}/status`, { headers: { 'x-api-key': API_KEY } });
   const status = await statusRes.json();
