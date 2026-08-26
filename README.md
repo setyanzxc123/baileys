@@ -108,7 +108,28 @@ Semua endpoint pengiriman pesan dilindungi oleh `API_KEY` via header `x-api-key`
 }
 ```
 
-### 4. Cek Status & Kesehatan Server (`GET /health`)
+### 4. Cek Nomor Terdaftar di WhatsApp (`POST /check-number`)
+* **Endpoint:** `http://localhost:3001/check-number`
+* **Header:** `x-api-key: dprd_secret_wa_gateway_key_2026`
+* **Request Body (JSON):**
+```json
+{
+  "phone": "081234567890"
+}
+```
+* **Response (200 OK):**
+```json
+{
+  "status": "success",
+  "data": {
+    "exists": true,
+    "phone": "6281234567890",
+    "jid": "6281234567890@s.whatsapp.net"
+  }
+}
+```
+
+### 5. Cek Status & Kesehatan Server (`GET /health`)
 * **Endpoint:** `http://localhost:3001/health`
 * **Response:**
 ```json
@@ -130,3 +151,13 @@ Semua endpoint pengiriman pesan dilindungi oleh `API_KEY` via header `x-api-key`
   }
 }
 ```
+
+---
+
+## 🧪 Pengujian Otomatis (Automated Tests)
+
+Jalankan test suite endpoint:
+```bash
+npm test
+```
+

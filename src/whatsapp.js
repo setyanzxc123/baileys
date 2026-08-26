@@ -150,6 +150,35 @@ class WhatsAppClient {
   }
 
   /**
+   * Pengecekan apakah suatu nomor terdaftar di WhatsApp
+   * Sesuai panduan docs_baileys/coreconcepts_jid.md & migration_v7.md
+   */
+  async checkNumber(phone) {
+    if (this.status !== 'connected' || !this.sock) {
+      throw new Error('WhatsApp Gateway belum terhubung.');
+    }
+
+    const clean = this.cleanPhoneNumber(phone);
+    if (!clean) {
+      throw new Error(`Nomor telepon '${phone}' tidak valid.`);
+    }
+
+    try {
+      const results = await this.sock.onWhatsApp(clean);
+      const match = Array.isArray(results) && results.length > 0 ? results[0] : null;
+
+      return {
+        exists: !!match?.exists,
+        phone: clean,
+        jid: match?.jid ? jidNormalizedUser(match.jid) : null,
+      };
+    } catch (error) {
+      console.error(`[WA-GATEWAY] Gagal cek nomor ${phone}:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
    * Request 8-digit Pairing Code untuk menautkan tanpa scan kamera
    * Sesuai panduan docs_baileys/auth_pairingcode.md
    */
@@ -183,7 +212,6 @@ class WhatsAppClient {
 
   /**
    * Kirim pesan teks WhatsApp
-   * Dilengkapi validasi nomor aktif via sock.onWhatsApp
    */
   async sendMessage(phone, message) {
     if (this.status !== 'connected' || !this.sock) {

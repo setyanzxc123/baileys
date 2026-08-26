@@ -13,7 +13,7 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Request logging sederhana
+// Request logging
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
@@ -54,12 +54,14 @@ app.get('/', (req, res) => {
     whatsapp: waClient.getStatus(),
     endpoints: {
       qr_scan: 'GET /qr',
+      qr_raw: 'GET /qr/raw',
       status: 'GET /status',
       health: 'GET /health',
-      send_otp: 'POST /send-otp (Protected by API Key)',
-      send_message: 'POST /send-message (Protected by API Key)',
-      pair_code: 'POST /pair-code (Protected by API Key)',
-      logout: 'POST /logout (Protected by API Key)',
+      send_otp: 'POST /send-otp (Protected)',
+      send_message: 'POST /send-message (Protected)',
+      pair_code: 'POST /pair-code (Protected)',
+      check_number: 'POST /check-number (Protected)',
+      logout: 'POST /logout (Protected)',
     },
   });
 });
@@ -89,7 +91,19 @@ app.get('/status', (req, res) => {
   });
 });
 
-// 4. Laman Visual Scan QR Code & Form Pairing Code
+// 4. Raw QR Data
+app.get('/qr/raw', (req, res) => {
+  const status = waClient.getStatus();
+  res.json({
+    status: 'success',
+    connected: status.connected,
+    qr_available: status.qr_available,
+    qr_raw: waClient.qrRaw,
+    qr_data_url: waClient.qrDataUrl,
+  });
+});
+
+// 5. Laman Visual Scan QR Code & Form Pairing Code
 app.get('/qr', (req, res) => {
   const status = waClient.getStatus();
 
@@ -103,54 +117,21 @@ app.get('/qr', (req, res) => {
         <title>WhatsApp Gateway - Terhubung</title>
         <style>
           body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #0f172a; color: #f8fafc; }
-          .card { background: #1e293b; padding: 2.5rem; border-radius: 1.25rem; text-align: center; max-width: 440px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); border: 1px solid #334155; }
+          .card { background: #1e293b; padding: 2.5rem; border-radius: 1.25rem; text-align: center; max-width: 440px; width: 90%; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); border: 1px solid #334155; }
           .icon { font-size: 4rem; margin-bottom: 1rem; color: #22c55e; }
-          h2 { margin: 0 0 0.5rem; color: #f8fafc; }
+          h2 { margin: 0 0 0.5rem; color: #f8fafc; font-size: 1.5rem; }
           p { color: #94a3b8; line-height: 1.5; margin: 0 0 1.5rem; font-size: 0.95rem; }
           .badge { display: inline-block; padding: 0.5rem 1rem; background: #14532d; color: #4ade80; border-radius: 9999px; font-weight: 600; font-size: 0.875rem; border: 1px solid #16a34a; }
-          .phone { font-family: monospace; font-size: 1.1rem; color: #38bdf8; margin-top: 0.75rem; display: block; }
+          .phone { font-family: monospace; font-size: 1.2rem; color: #38bdf8; margin-top: 1rem; display: block; font-weight: bold; }
         </style>
       </head>
       <body>
         <div class="card">
           <div class="icon">✓</div>
           <h2>WhatsApp Terhubung!</h2>
-          <p>Gateway siap mengirim pesan OTP dan notifikasi agenda DPRD.</p>
+          <p>Gateway siap mengirimkan pesan OTP dan notifikasi agenda DPRD.</p>
           <div class="badge">AKTIF & SIAP PAKAI</div>
           <span class="phone">+${status.user?.phone || 'Nomor Terdaftar'}</span>
-        </div>
-      </body>
-      </html>
-    `);
-  }
-
-  if (status.qr_available && waClient.qrDataUrl) {
-    return res.send(`
-      <!DOCTYPE html>
-      <html lang="id">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Tautkan WhatsApp Gateway</title>
-        <meta http-equiv="refresh" content="5">
-        <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #0f172a; color: #f8fafc; }
-          .card { background: #1e293b; padding: 2.5rem; border-radius: 1.25rem; text-align: center; max-width: 440px; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); border: 1px solid #334155; }
-          h2 { margin: 0 0 0.5rem; color: #f8fafc; font-size: 1.4rem; }
-          p { color: #94a3b8; font-size: 0.9rem; line-height: 1.5; margin: 0 0 1.5rem; }
-          .qr-box { background: white; padding: 1.25rem; border-radius: 0.875rem; display: inline-block; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3); }
-          .qr-box img { display: block; width: 240px; height: 240px; }
-          .footer { margin-top: 1.5rem; font-size: 0.8rem; color: #64748b; }
-        </style>
-      </head>
-      <body>
-        <div class="card">
-          <h2>Tautkan Perangkat WhatsApp</h2>
-          <p>Buka WhatsApp di HP ➔ Menu Titik Tiga / Pengaturan ➔ <strong>Perangkat Tertaut</strong> ➔ Pindai QR Code di bawah ini:</p>
-          <div class="qr-box">
-            <img src="${waClient.qrDataUrl}" alt="WhatsApp QR Code" />
-          </div>
-          <div class="footer">Laman otomatis memuat ulang setiap 5 detik</div>
         </div>
       </body>
       </html>
@@ -163,28 +144,146 @@ app.get('/qr', (req, res) => {
     <head>
       <meta charset="UTF-8">
       <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>Menyiapkan WhatsApp Gateway...</title>
-      <meta http-equiv="refresh" content="3">
+      <title>Tautkan WhatsApp Gateway</title>
       <style>
         body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; background: #0f172a; color: #f8fafc; }
-        .card { background: #1e293b; padding: 2.5rem; border-radius: 1.25rem; text-align: center; max-width: 440px; border: 1px solid #334155; }
-        .spinner { border: 4px solid #334155; border-top: 4px solid #38bdf8; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 1.5rem; }
+        .card { background: #1e293b; padding: 2rem; border-radius: 1.25rem; text-align: center; max-width: 460px; width: 90%; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5); border: 1px solid #334155; }
+        h2 { margin: 0 0 0.5rem; color: #f8fafc; font-size: 1.35rem; }
+        p { color: #94a3b8; font-size: 0.9rem; line-height: 1.5; margin: 0 0 1.25rem; }
+        
+        .tabs { display: flex; gap: 0.5rem; margin-bottom: 1.5rem; background: #0f172a; padding: 0.35rem; border-radius: 0.75rem; border: 1px solid #334155; }
+        .tab-btn { flex: 1; padding: 0.6rem 0.5rem; border: none; background: transparent; color: #94a3b8; font-weight: 600; font-size: 0.85rem; border-radius: 0.5rem; cursor: pointer; transition: all 0.2s; }
+        .tab-btn.active { background: #38bdf8; color: #0f172a; }
+        
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+        
+        .qr-box { background: white; padding: 1rem; border-radius: 0.875rem; display: inline-block; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.3); }
+        .qr-box img { display: block; width: 220px; height: 220px; }
+        
+        .form-group { text-align: left; margin-bottom: 1rem; }
+        label { display: block; font-size: 0.85rem; font-weight: 600; margin-bottom: 0.4rem; color: #cbd5e1; }
+        input[type="text"] { width: 100%; box-sizing: border-box; padding: 0.75rem; border-radius: 0.5rem; border: 1px solid #475569; background: #0f172a; color: #f8fafc; font-size: 1rem; }
+        input[type="text"]:focus { outline: none; border-color: #38bdf8; }
+        
+        .btn-submit { width: 100%; padding: 0.75rem; background: #38bdf8; color: #0f172a; border: none; border-radius: 0.5rem; font-weight: 700; font-size: 0.95rem; cursor: pointer; transition: background 0.2s; }
+        .btn-submit:hover { background: #0ea5e9; }
+        
+        .code-display { margin-top: 1.25rem; padding: 1.25rem; background: #0f172a; border-radius: 0.75rem; border: 1px dashed #38bdf8; display: none; }
+        .code-val { font-family: monospace; font-size: 2rem; font-weight: 800; letter-spacing: 4px; color: #4ade80; margin: 0.5rem 0; }
+        
+        .footer { margin-top: 1.25rem; font-size: 0.75rem; color: #64748b; }
+        .spinner { border: 3px solid #334155; border-top: 3px solid #38bdf8; border-radius: 50%; width: 28px; height: 28px; animation: spin 1s linear infinite; margin: 1.5rem auto; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        p { color: #94a3b8; font-size: 0.95rem; line-height: 1.5; }
       </style>
     </head>
     <body>
       <div class="card">
-        <div class="spinner"></div>
-        <h2>Menghubungkan ke WhatsApp...</h2>
-        <p>Sedang menginisialisasi sesi Baileys v7. Mohon tunggu beberapa detik...</p>
+        <h2>Tautkan WhatsApp Gateway</h2>
+        <p>Pilih metode untuk menautkan akun WhatsApp resmi Sekretariat DPRD:</p>
+        
+        <div class="tabs">
+          <button class="tab-btn active" onclick="switchTab('qr')">1. Scan QR Code</button>
+          <button class="tab-btn" onclick="switchTab('pair')">2. Kode Pairing 8 Digit</button>
+        </div>
+        
+        <div id="tab-qr" class="tab-content active">
+          ${
+            waClient.qrDataUrl
+              ? `
+            <div class="qr-box">
+              <img src="${waClient.qrDataUrl}" alt="WhatsApp QR Code" />
+            </div>
+            <p style="margin-top: 1rem; font-size: 0.85rem; color: #94a3b8;">Buka WhatsApp di HP ➔ <strong>Perangkat Tertaut</strong> ➔ Pindai QR di atas.</p>
+            <div class="footer">Otomatis memuat ulang jika QR kedaluwarsa...</div>
+          `
+              : `
+            <div class="spinner"></div>
+            <p>Sedang membuat QR Code baru...</p>
+          `
+          }
+        </div>
+        
+        <div id="tab-pair" class="tab-content">
+          <div class="form-group">
+            <label>Nomor WhatsApp Pengirim:</label>
+            <input type="text" id="pairPhone" placeholder="Contoh: 081234567890 atau 6281234567890" />
+          </div>
+          <div class="form-group">
+            <label>API Key Gateway:</label>
+            <input type="text" id="pairApiKey" value="${API_KEY}" />
+          </div>
+          <button class="btn-submit" onclick="requestPairCode()">Dapatkan Kode Pairing</button>
+          
+          <div id="pairResult" class="code-display">
+            <div style="font-size: 0.8rem; color: #94a3b8;">KODE PAIRING WHATSAPP:</div>
+            <div id="pairCodeDisplay" class="code-val">----</div>
+            <div style="font-size: 0.8rem; color: #cbd5e1; line-height: 1.4;">
+              Buka WhatsApp di HP ➔ <strong>Perangkat Tertaut</strong> ➔ <strong>Tautkan dengan nomor telepon saja</strong> ➔ Masukkan 8 digit kode di atas.
+            </div>
+          </div>
+        </div>
       </div>
+
+      <script>
+        function switchTab(type) {
+          document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+          document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+          if (type === 'qr') {
+            document.querySelectorAll('.tab-btn')[0].classList.add('active');
+            document.getElementById('tab-qr').classList.add('active');
+          } else {
+            document.querySelectorAll('.tab-btn')[1].classList.add('active');
+            document.getElementById('tab-pair').classList.add('active');
+          }
+        }
+
+        async function requestPairCode() {
+          const phone = document.getElementById('pairPhone').value.trim();
+          const apiKey = document.getElementById('pairApiKey').value.trim();
+          if (!phone) return alert('Silakan masukkan nomor WhatsApp.');
+          
+          const resultBox = document.getElementById('pairResult');
+          const codeVal = document.getElementById('pairCodeDisplay');
+          codeVal.innerText = 'MEMUAT...';
+          resultBox.style.display = 'block';
+
+          try {
+            const res = await fetch('/pair-code', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey },
+              body: JSON.stringify({ phone })
+            });
+            const data = await res.json();
+            if (data.status === 'success') {
+              codeVal.innerText = data.data.pairing_code;
+            } else {
+              codeVal.innerText = 'GAGAL';
+              alert(data.message || 'Gagal membuat kode pairing.');
+            }
+          } catch(e) {
+            codeVal.innerText = 'ERROR';
+            alert('Terjadi kesalahan jaringan.');
+          }
+        }
+
+        // Auto poll connection status
+        setInterval(async () => {
+          try {
+            const res = await fetch('/status');
+            const data = await res.json();
+            if (data.data?.connected) {
+              window.location.reload();
+            }
+          } catch(e) {}
+        }, 4000);
+      </script>
     </body>
     </html>
   `);
 });
 
-// 5. Endpoint Kirim Pesan Teks
+// 6. Endpoint Kirim Pesan Teks
 app.post('/send-message', requireAuth, async (req, res) => {
   const { phone, message, text } = req.body;
   const content = message || text;
@@ -220,7 +319,7 @@ app.post('/send-message', requireAuth, async (req, res) => {
   }
 });
 
-// 6. Endpoint Khusus Kirim OTP (Format pesan terstandar)
+// 7. Endpoint Khusus Kirim OTP
 app.post('/send-otp', requireAuth, async (req, res) => {
   const { phone, otp, app_name } = req.body;
 
@@ -254,7 +353,7 @@ app.post('/send-otp', requireAuth, async (req, res) => {
   }
 });
 
-// 7. Endpoint Request Pairing Code 8 Digit (Alternatif Scan QR)
+// 8. Endpoint Request Pairing Code 8 Digit
 app.post('/pair-code', requireAuth, async (req, res) => {
   const { phone } = req.body;
 
@@ -280,7 +379,34 @@ app.post('/pair-code', requireAuth, async (req, res) => {
   }
 });
 
-// 8. Endpoint Logout & Reset Sesi
+// 9. Endpoint Cek Nomor Terdaftar di WhatsApp
+app.post('/check-number', requireAuth, async (req, res) => {
+  const { phone } = req.body;
+
+  if (!phone) {
+    return res.status(422).json({
+      status: 'error',
+      message: "Parameter 'phone' wajib diisi.",
+    });
+  }
+
+  try {
+    const result = await waClient.checkNumber(phone);
+    return res.json({
+      status: 'success',
+      data: result,
+    });
+  } catch (error) {
+    const isOffline = !waClient.getStatus().connected;
+    return res.status(isOffline ? 503 : 500).json({
+      status: 'error',
+      message: error.message || 'Gagal memeriksa nomor telepon.',
+      code: isOffline ? 'WA_GATEWAY_OFFLINE' : 'CHECK_FAILED',
+    });
+  }
+});
+
+// 10. Endpoint Logout & Reset Sesi
 app.post('/logout', requireAuth, async (req, res) => {
   try {
     await waClient.logout();
