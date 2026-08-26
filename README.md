@@ -41,7 +41,8 @@ PORT=3001
 NODE_ENV=development
 API_KEY=<buat-kunci-rahasia-anda-sendiri>
 SESSION_DIR=./sessions/primary
-LOG_LEVEL=silent
+# 'warn' untuk produksi — 'silent' menyembunyikan diagnosis kegagalan pairing/disconnect
+LOG_LEVEL=warn
 
 # Rate limiting (opsional, ada default)
 RATE_LIMIT_SEND_PER_MINUTE=60

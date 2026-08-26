@@ -281,7 +281,7 @@ Mengirim pesan OTP resmi dengan format teks terstandarisasi DPRD.
 | Parameter | Tipe | Wajib? | Keterangan |
 |---|---|---|---|
 | `phone` | `string` | **Ya** | Nomor WhatsApp tujuan (`08...` atau `628...`) |
-| `otp` | `string` / `number` | **Ya** | Kode angka OTP (contoh: `"748192"`) |
+| `otp` | `string` / `number` | **Ya** | Kode OTP **4–8 digit angka** (contoh: `"748192"`); di luar format itu ditolak `422 OTP_INVALID_FORMAT` |
 | `app_name` | `string` | *Opsional* | Nama aplikasi pengirim (Default: `"DPRD Provinsi Sulawesi Tengah"`) |
 
 * **Contoh Request:**

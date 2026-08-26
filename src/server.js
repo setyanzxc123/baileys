@@ -107,11 +107,19 @@ const pairLimiter = createRateLimiter({
   errMessage: 'Batas operasi device (pairing/logout/restart) per menit telah terlampaui.',
 });
 
+// Format OTP yang sah: 4-8 digit angka. Dipakai handler untuk menolak
+// payload liar (OTP diinterpolasi ke template pesan resmi institusi)
+// dan keyFn limiter supaya payload tak valid tidak membakar kuota nomor.
+const OTP_PATTERN = /^\d{4,8}$/;
+
 // Dedup OTP per nomor: cegah spam OTP beruntun ke nomor yang sama.
-// Payload tanpa phone/otp tidak dihitung (biar validasi 422 yang menolak).
+// Payload tanpa phone/otp, atau yang pasti ditolak validasi (format OTP
+// tidak sah), tidak dihitung — penolakan 422 tidak seharusnya
+// menghabiskan cooldown/hourly limit nomor tujuan.
 const otpPhoneKey = (req) => {
   const body = req.body || {};
   if (!body.phone || !body.otp) return null;
+  if (!OTP_PATTERN.test(String(body.otp))) return null;
   const clean = waClient.cleanPhoneNumber(body.phone);
   return clean ? `otp:${clean}` : null;
 };
@@ -245,6 +253,14 @@ app.post('/send-otp', requireAuth, sendLimiter, otpCooldown, otpHourly, async (r
     return res.status(422).json({
       status: 'error',
       message: "Parameter 'phone' dan 'otp' wajib diisi.",
+    });
+  }
+
+  if (!OTP_PATTERN.test(String(otp))) {
+    return res.status(422).json({
+      status: 'error',
+      code: 'OTP_INVALID_FORMAT',
+      message: "Parameter 'otp' harus berupa 4-8 digit angka.",
     });
   }
 

@@ -186,6 +186,29 @@ test('POST /send-otp cooldown — OTP kedua ke nomor sama ditolak 429 OTP_COOLDO
   assert.strictEqual(dataSecond.code, 'OTP_COOLDOWN');
 });
 
+test('POST /send-otp format OTP tidak valid — 422 OTP_INVALID_FORMAT', async () => {
+  const res = await jsonPost('/send-otp', { phone: samplePhone(), otp: '12ab56' }, { 'x-api-key': API_KEY });
+  const data = await res.json();
+  assert.strictEqual(res.status, 422);
+  assert.strictEqual(data.code, 'OTP_INVALID_FORMAT');
+});
+
+test('POST /send-otp payload invalid tidak membakar cooldown nomor', async () => {
+  const phone = samplePhone();
+  const headers = { 'x-api-key': API_KEY };
+
+  const resInvalid = await jsonPost('/send-otp', { phone, otp: 'abcd' }, headers);
+  assert.strictEqual(resInvalid.status, 422);
+
+  // OTP valid ke nomor yang sama langsung setelahnya tidak boleh kena 429 —
+  // payload yang ditolak validasi tidak menghabiskan bucket cooldown.
+  const resNext = await jsonPost('/send-otp', { phone, otp: '654321' }, headers);
+  assert.ok(
+    [200, 500, 503].includes(resNext.status),
+    `OTP valid setelah payload invalid tidak boleh kena 429, didapat ${resNext.status}`
+  );
+});
+
 test('POST /restart — koneksi dimulai ulang tanpa hapus sesi', async () => {
   const res = await fetch(`${BASE_URL}/restart`, { method: 'POST', headers: { 'x-api-key': API_KEY } });
   const data = await res.json();
