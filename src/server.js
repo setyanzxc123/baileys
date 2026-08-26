@@ -10,8 +10,8 @@ const PORT = process.env.PORT || 3001;
 const API_KEY = process.env.API_KEY || 'dprd_secret_wa_gateway_key_2026';
 
 app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '20mb' }));
+app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 
 // Request logging
 app.use((req, res, next) => {
@@ -59,6 +59,9 @@ app.get('/', (req, res) => {
       health: 'GET /health',
       send_otp: 'POST /send-otp (Protected)',
       send_message: 'POST /send-message (Protected)',
+      send_document: 'POST /send-document (Protected)',
+      send_image: 'POST /send-image (Protected)',
+      send_bulk: 'POST /send-bulk (Protected)',
       pair_code: 'POST /pair-code (Protected)',
       check_number: 'POST /check-number (Protected)',
       logout: 'POST /logout (Protected)',
@@ -353,7 +356,113 @@ app.post('/send-otp', requireAuth, async (req, res) => {
   }
 });
 
-// 8. Endpoint Request Pairing Code 8 Digit
+// 8. Endpoint Kirim Dokumen PDF / Berkas
+app.post('/send-document', requireAuth, async (req, res) => {
+  const { phone, document_url, url, file_name, filename, caption, mimetype } = req.body;
+  const docUrl = document_url || url;
+  const docName = file_name || filename || 'Undangan_DPRD.pdf';
+
+  if (!phone) {
+    return res.status(422).json({
+      status: 'error',
+      message: "Parameter 'phone' wajib diisi.",
+    });
+  }
+
+  if (!docUrl) {
+    return res.status(422).json({
+      status: 'error',
+      message: "Parameter 'document_url' (atau 'url') wajib diisi.",
+    });
+  }
+
+  try {
+    const result = await waClient.sendDocument(phone, docUrl, {
+      fileName: docName,
+      caption: caption || '',
+      mimetype: mimetype || 'application/pdf',
+    });
+
+    return res.json({
+      status: 'success',
+      message: 'Dokumen berhasil dikirim via WhatsApp.',
+      data: result,
+    });
+  } catch (error) {
+    const isOffline = !waClient.getStatus().connected;
+    return res.status(isOffline ? 503 : 500).json({
+      status: 'error',
+      message: error.message || 'Gagal mengirim dokumen WhatsApp.',
+      code: isOffline ? 'WA_GATEWAY_OFFLINE' : 'SEND_DOCUMENT_FAILED',
+    });
+  }
+});
+
+// 9. Endpoint Kirim Gambar
+app.post('/send-image', requireAuth, async (req, res) => {
+  const { phone, image_url, url, caption } = req.body;
+  const imgUrl = image_url || url;
+
+  if (!phone) {
+    return res.status(422).json({
+      status: 'error',
+      message: "Parameter 'phone' wajib diisi.",
+    });
+  }
+
+  if (!imgUrl) {
+    return res.status(422).json({
+      status: 'error',
+      message: "Parameter 'image_url' (atau 'url') wajib diisi.",
+    });
+  }
+
+  try {
+    const result = await waClient.sendImage(phone, imgUrl, caption || '');
+    return res.json({
+      status: 'success',
+      message: 'Gambar berhasil dikirim via WhatsApp.',
+      data: result,
+    });
+  } catch (error) {
+    const isOffline = !waClient.getStatus().connected;
+    return res.status(isOffline ? 503 : 500).json({
+      status: 'error',
+      message: error.message || 'Gagal mengirim gambar WhatsApp.',
+      code: isOffline ? 'WA_GATEWAY_OFFLINE' : 'SEND_IMAGE_FAILED',
+    });
+  }
+});
+
+// 10. Endpoint Kirim Pesan Beruntun (Bulk Broadcast)
+app.post('/send-bulk', requireAuth, async (req, res) => {
+  const { recipients, delay_ms } = req.body;
+
+  if (!Array.isArray(recipients) || recipients.length === 0) {
+    return res.status(422).json({
+      status: 'error',
+      message: "Parameter 'recipients' harus berupa array yang berisi daftar pesan ({ phone, message }).",
+    });
+  }
+
+  try {
+    const result = await waClient.sendBulk(recipients, delay_ms || 1500);
+    return res.json({
+      status: 'success',
+      message: `Proses pengiriman bulk selesai. Berhasil: ${result.success_count}, Gagal: ${result.failed_count}`,
+      data: result,
+    });
+  } catch (error) {
+    const isOffline = !waClient.getStatus().connected;
+    return res.status(isOffline ? 503 : 500).json({
+      status: 'error',
+      message: error.message || 'Gagal menjalankan pengiriman massal.',
+      code: isOffline ? 'WA_GATEWAY_OFFLINE' : 'BULK_FAILED',
+    });
+  }
+});
+
+// 11. Endpoint Request Pairing Code 8 Digit
 app.post('/pair-code', requireAuth, async (req, res) => {
   const { phone } = req.body;
 
@@ -379,7 +488,7 @@ app.post('/pair-code', requireAuth, async (req, res) => {
   }
 });
 
-// 9. Endpoint Cek Nomor Terdaftar di WhatsApp
+// 12. Endpoint Cek Nomor Terdaftar di WhatsApp
 app.post('/check-number', requireAuth, async (req, res) => {
   const { phone } = req.body;
 
@@ -406,7 +515,7 @@ app.post('/check-number', requireAuth, async (req, res) => {
   }
 });
 
-// 10. Endpoint Logout & Reset Sesi
+// 13. Endpoint Logout & Reset Sesi
 app.post('/logout', requireAuth, async (req, res) => {
   try {
     await waClient.logout();

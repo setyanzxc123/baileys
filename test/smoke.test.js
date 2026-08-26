@@ -2,9 +2,6 @@ import assert from 'assert';
 
 console.log('🧪 Memulai Automated Smoke Test Suite untuk DPRD WhatsApp Gateway (Baileys v7)...');
 
-// Helper sleep
-const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
 async function runTests() {
   const BASE_URL = 'http://localhost:3001';
   const API_KEY = 'dprd_secret_wa_gateway_key_2026';
@@ -16,7 +13,10 @@ async function runTests() {
     assert.strictEqual(res.status, 200);
     assert.strictEqual(data.engine, 'Baileys v7');
     assert.strictEqual(data.status, 'running');
-    console.log('✅ GET / responded with 200 OK and valid discovery data.');
+    assert.ok(data.endpoints.send_document);
+    assert.ok(data.endpoints.send_image);
+    assert.ok(data.endpoints.send_bulk);
+    console.log('✅ GET / responded with 200 OK and discovery data.');
   } catch (e) {
     console.error('❌ GET / failed:', e.message);
   }
@@ -46,13 +46,13 @@ async function runTests() {
     console.log('✅ POST /send-otp without API key rejected with 401 Unauthorized.');
 
     // Kunci API Salah -> 401
-    const resBadKey = await fetch(`${BASE_URL}/send-otp`, {
+    const resBadKey = await fetch(`${BASE_URL}/send-document`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': 'wrong_key' },
-      body: JSON.stringify({ phone: '08123456789', otp: '123456' }),
+      body: JSON.stringify({ phone: '08123456789', url: 'https://example.com/doc.pdf' }),
     });
     assert.strictEqual(resBadKey.status, 401);
-    console.log('✅ POST /send-otp with invalid API key rejected with 401 Unauthorized.');
+    console.log('✅ POST /send-document with invalid API key rejected with 401 Unauthorized.');
   } catch (e) {
     console.error('❌ Authentication test failed:', e.message);
   }
@@ -66,16 +66,25 @@ async function runTests() {
       body: JSON.stringify({ phone: '08123456789' }),
     });
     assert.strictEqual(resMissingOtp.status, 422);
-    console.log('✅ POST /send-otp without OTP parameter returned 422 Unprocessable Content.');
+    console.log('✅ POST /send-otp without OTP parameter returned 422.');
 
-    // Missing Phone
-    const resMissingPhone = await fetch(`${BASE_URL}/send-message`, {
+    // Missing Document URL
+    const resMissingDocUrl = await fetch(`${BASE_URL}/send-document`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
-      body: JSON.stringify({ message: 'Halo' }),
+      body: JSON.stringify({ phone: '08123456789' }),
     });
-    assert.strictEqual(resMissingPhone.status, 422);
-    console.log('✅ POST /send-message without Phone parameter returned 422 Unprocessable Content.');
+    assert.strictEqual(resMissingDocUrl.status, 422);
+    console.log('✅ POST /send-document without document_url returned 422.');
+
+    // Invalid Bulk Recipients
+    const resBadBulk = await fetch(`${BASE_URL}/send-bulk`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+      body: JSON.stringify({ recipients: [] }),
+    });
+    assert.strictEqual(resBadBulk.status, 422);
+    console.log('✅ POST /send-bulk with empty array returned 422.');
   } catch (e) {
     console.error('❌ Validation test failed:', e.message);
   }
@@ -87,7 +96,6 @@ async function runTests() {
       headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
       body: JSON.stringify({ phone: '08123456789', otp: '123456' }),
     });
-    // Saat socket belum di-scan QR, harus return 503 dengan kode WA_GATEWAY_OFFLINE
     const data = await resSend.json();
     assert.strictEqual(resSend.status, 503);
     assert.strictEqual(data.code, 'WA_GATEWAY_OFFLINE');

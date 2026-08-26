@@ -108,7 +108,46 @@ Semua endpoint pengiriman pesan dilindungi oleh `API_KEY` via header `x-api-key`
 }
 ```
 
-### 4. Cek Nomor Terdaftar di WhatsApp (`POST /check-number`)
+### 4. Kirim Dokumen / Surat Undangan PDF (`POST /send-document`)
+* **Endpoint:** `http://localhost:3001/send-document`
+* **Header:** `x-api-key: dprd_secret_wa_gateway_key_2026`
+* **Request Body (JSON):**
+```json
+{
+  "phone": "081234567890",
+  "document_url": "https://example.com/uploads/Undangan_Rapat.pdf",
+  "file_name": "Undangan_Rapat_Banmus.pdf",
+  "caption": "Surat Undangan Rapat Badan Musyawarah"
+}
+```
+
+### 5. Kirim Gambar / Dokumentasi Kegiatan (`POST /send-image`)
+* **Endpoint:** `http://localhost:3001/send-image`
+* **Header:** `x-api-key: dprd_secret_wa_gateway_key_2026`
+* **Request Body (JSON):**
+```json
+{
+  "phone": "081234567890",
+  "image_url": "https://example.com/uploads/dokumentasi.jpg",
+  "caption": "Dokumentasi Kunjungan Kerja Komisi"
+}
+```
+
+### 6. Kirim Pesan Massal / Broadcast dengan Anti-Spam Jitter (`POST /send-bulk`)
+* **Endpoint:** `http://localhost:3001/send-bulk`
+* **Header:** `x-api-key: dprd_secret_wa_gateway_key_2026`
+* **Request Body (JSON):**
+```json
+{
+  "delay_ms": 1500,
+  "recipients": [
+    { "phone": "081234567891", "message": "Pemberitahuan Rapat Komisi I" },
+    { "phone": "081234567892", "message": "Pemberitahuan Rapat Komisi I" }
+  ]
+}
+```
+
+### 7. Cek Nomor Terdaftar di WhatsApp (`POST /check-number`)
 * **Endpoint:** `http://localhost:3001/check-number`
 * **Header:** `x-api-key: dprd_secret_wa_gateway_key_2026`
 * **Request Body (JSON):**
@@ -129,7 +168,7 @@ Semua endpoint pengiriman pesan dilindungi oleh `API_KEY` via header `x-api-key`
 }
 ```
 
-### 5. Cek Status & Kesehatan Server (`GET /health`)
+### 8. Cek Status & Kesehatan Server (`GET /health`)
 * **Endpoint:** `http://localhost:3001/health`
 * **Response:**
 ```json

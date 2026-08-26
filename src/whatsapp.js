@@ -245,6 +245,143 @@ class WhatsAppClient {
   }
 
   /**
+   * Kirim berkas dokumen PDF (Undangan Rapat, SK, Lampiran)
+   * Sesuai panduan docs_baileys/message_media.md
+   */
+  async sendDocument(phone, documentUrl, options = {}) {
+    if (this.status !== 'connected' || !this.sock) {
+      throw new Error('WhatsApp Gateway belum terhubung. Silakan scan QR Code terlebih dahulu.');
+    }
+
+    const jid = this.normalizeJid(phone);
+    if (!jid) {
+      throw new Error(`Nomor telepon '${phone}' tidak valid.`);
+    }
+
+    if (!documentUrl || typeof documentUrl !== 'string') {
+      throw new Error('Parameter document URL/path wajib disertakan.');
+    }
+
+    const fileName = options.fileName || options.filename || 'Dokumen.pdf';
+    const mimetype = options.mimetype || 'application/pdf';
+    const caption = options.caption || '';
+
+    try {
+      const payload = {
+        document: { url: documentUrl },
+        mimetype,
+        fileName,
+      };
+
+      if (caption.trim() !== '') {
+        payload.caption = caption.trim();
+      }
+
+      const response = await this.sock.sendMessage(jid, payload);
+
+      return {
+        success: true,
+        messageId: response?.key?.id || null,
+        phone: jid.split('@')[0],
+        fileName,
+        timestamp: response?.messageTimestamp || Math.floor(Date.now() / 1000),
+      };
+    } catch (error) {
+      console.error(`[WA-GATEWAY] Gagal kirim dokumen ke ${phone}:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Kirim pesan bergambar
+   */
+  async sendImage(phone, imageUrl, caption = '') {
+    if (this.status !== 'connected' || !this.sock) {
+      throw new Error('WhatsApp Gateway belum terhubung. Silakan scan QR Code terlebih dahulu.');
+    }
+
+    const jid = this.normalizeJid(phone);
+    if (!jid) {
+      throw new Error(`Nomor telepon '${phone}' tidak valid.`);
+    }
+
+    if (!imageUrl || typeof imageUrl !== 'string') {
+      throw new Error('Parameter image URL/path wajib disertakan.');
+    }
+
+    try {
+      const payload = {
+        image: { url: imageUrl },
+      };
+
+      if (caption && typeof caption === 'string' && caption.trim() !== '') {
+        payload.caption = caption.trim();
+      }
+
+      const response = await this.sock.sendMessage(jid, payload);
+
+      return {
+        success: true,
+        messageId: response?.key?.id || null,
+        phone: jid.split('@')[0],
+        timestamp: response?.messageTimestamp || Math.floor(Date.now() / 1000),
+      };
+    } catch (error) {
+      console.error(`[WA-GATEWAY] Gagal kirim gambar ke ${phone}:`, error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * Kirim pesan beruntun (Bulk Broadcast) dengan proteksi anti-spam jitter delay
+   */
+  async sendBulk(recipients, defaultDelayMs = 1500) {
+    if (this.status !== 'connected' || !this.sock) {
+      throw new Error('WhatsApp Gateway belum terhubung.');
+    }
+
+    if (!Array.isArray(recipients) || recipients.length === 0) {
+      throw new Error("Parameter 'recipients' harus berupa array yang tidak kosong.");
+    }
+
+    const results = [];
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    for (let i = 0; i < recipients.length; i++) {
+      const item = recipients[i];
+      const phone = item.phone || item.no_wa;
+      const message = item.message || item.text;
+
+      try {
+        if (!phone || !message) {
+          results.push({ phone: phone || null, success: false, error: 'Nomor atau pesan kosong' });
+          continue;
+        }
+
+        const res = await this.sendMessage(phone, message);
+        results.push({ phone: res.phone, success: true, messageId: res.messageId });
+      } catch (err) {
+        results.push({ phone, success: false, error: err.message });
+      }
+
+      // Jeda waktu teracak (jitter 1000ms - 2000ms) untuk mencegah Meta anti-spam
+      if (i < recipients.length - 1) {
+        const jitter = defaultDelayMs + Math.floor(Math.random() * 800);
+        await sleep(jitter);
+      }
+    }
+
+    const successfulCount = results.filter((r) => r.success).length;
+
+    return {
+      total: recipients.length,
+      success_count: successfulCount,
+      failed_count: recipients.length - successfulCount,
+      results,
+    };
+  }
+
+  /**
    * Logout dan bersihkan sesi di folder disk
    */
   async logout() {
