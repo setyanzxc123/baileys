@@ -59,6 +59,18 @@ async function runTests() {
     });
     assert.strictEqual(resBadKey.status, 401);
     console.log('✅ POST /send-document with invalid API key rejected with 401 Unauthorized.');
+
+    // Endpoint device headless tanpa key -> 401 (/status & /qr/raw kini Protected)
+    const resStatus = await fetch(`${BASE_URL}/status`);
+    assert.strictEqual(resStatus.status, 401);
+    const resQrRaw = await fetch(`${BASE_URL}/qr/raw`);
+    assert.strictEqual(resQrRaw.status, 401);
+    console.log('✅ GET /status dan GET /qr/raw tanpa API key ditolak 401 (headless protected).');
+
+    // Halaman HTML /qr sudah dihapus (mode headless penuh) -> 404
+    const resQrPage = await fetch(`${BASE_URL}/qr`);
+    assert.strictEqual(resQrPage.status, 404);
+    console.log('✅ GET /qr (halaman HTML) sudah tidak ada (404) — gateway full headless.');
   } catch (e) {
     console.error('❌ Authentication test failed:', e.message);
   }

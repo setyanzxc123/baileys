@@ -10,7 +10,6 @@ import NodeCache from '@cacheable/node-cache';
 import pino from 'pino';
 import QRCode from 'qrcode';
 import fs from 'fs';
-import path from 'path';
 
 class WhatsAppClient {
   constructor() {
@@ -72,7 +71,7 @@ class WhatsAppClient {
           console.error('[WA-GATEWAY] Gagal membuat QR Data URL:', e.message);
         }
         this.status = 'qr_ready';
-        console.log('[WA-GATEWAY] QR Code siap dipindai. Buka http://localhost:' + (process.env.PORT || 3001) + '/qr');
+        console.log('[WA-GATEWAY] QR Code siap dipindai. Ambil via GET /qr/raw (Protected) lalu render qr_data_url di panel admin.');
       }
 
       if (connection === 'open') {

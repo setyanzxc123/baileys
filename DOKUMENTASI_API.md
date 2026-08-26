@@ -17,20 +17,19 @@
      * [`GET /`](#1-service-discovery-get-)
      * [`GET /health`](#2-cek-kesehatan--memori-ram-get-health)
      * [`GET /status`](#3-cek-status-koneksi-whatsapp-get-status)
-     * [`GET /qr`](#4-laman-visual-scan-qr--pairing-code-get-qr)
-     * [`GET /qr/raw`](#5-raw-qr-code-json-get-qrraw)
+     * [`GET /qr/raw`](#4-raw-qr-code-json-get-qrraw)
    * [B. Autentikasi & Penautan Perangkat](#b-autentikasi--penautan-perangkat)
-     * [`POST /pair-code`](#6-request-kode-pairing-8-digit-post-pair-code)
-     * [`POST /logout`](#7-putuskan-sesi--logout-post-logout)
-     * [`POST /restart`](#8-restart-koneksi-tanpa-hapus-sesi-post-restart)
+     * [`POST /pair-code`](#5-request-kode-pairing-8-digit-post-pair-code)
+     * [`POST /logout`](#6-putuskan-sesi--logout-post-logout)
+     * [`POST /restart`](#7-restart-koneksi-tanpa-hapus-sesi-post-restart)
    * [C. Pengiriman Pesan & Dokumen](#c-pengiriman-pesan--dokumen)
-     * [`POST /send-otp`](#9-kirim-kode-otp-post-send-otp)
-     * [`POST /send-message`](#10-kirim-pesan-teks-bebas-post-send-message)
-     * [`POST /send-document`](#11-kirim-dokumen-pdf--undangan-rapat-post-send-document)
-     * [`POST /send-image`](#12-kirim-gambar--dokumentasi-post-send-image)
-     * [`POST /send-bulk`](#13-kirim-pesan-massal--broadcast-post-send-bulk)
+     * [`POST /send-otp`](#8-kirim-kode-otp-post-send-otp)
+     * [`POST /send-message`](#9-kirim-pesan-teks-bebas-post-send-message)
+     * [`POST /send-document`](#10-kirim-dokumen-pdf--undangan-rapat-post-send-document)
+     * [`POST /send-image`](#11-kirim-gambar--dokumentasi-post-send-image)
+     * [`POST /send-bulk`](#12-kirim-pesan-massal--broadcast-post-send-bulk)
    * [D. Utilitas & Validasi](#d-utilitas--validasi)
-     * [`POST /check-number`](#14-cek-nomor-terdaftar-di-whatsapp-post-check-number)
+     * [`POST /check-number`](#13-cek-nomor-terdaftar-di-whatsapp-post-check-number)
 4. [Contoh Kode Integrasi](#4-contoh-kode-integrasi)
    * [PHP (cURL Native & CodeIgniter 4)](#1-integrasi-php--codeigniter-4)
    * [JavaScript / Node.js (Fetch)](#2-integrasi-javascript--nodejs-fetch)
@@ -169,7 +168,7 @@ Monitoring *real-time* penggunaan memori RAM Heap Node.js, RSS, dan *uptime* gat
 
 #### 3. Cek Status Koneksi WhatsApp (`GET /status`)
 Mengembalikan kondisi keterhubungan socket WhatsApp secara ringkas.
-* **Autentikasi:** Publik
+* **Autentikasi:** Wajib API Key
 * **Contoh Respons (200 OK):**
 ```json
 {
@@ -194,16 +193,9 @@ Mengembalikan kondisi keterhubungan socket WhatsApp secara ringkas.
 
 ---
 
-#### 4. Laman Visual Scan QR & Pairing Code (`GET /qr`)
-Antarmuka web interaktif siap pakai untuk scan QR Code atau request 8-digit Pairing Code langsung di browser.
-* **Autentikasi:** Publik
-* **Format Output:** HTML interaktif (`text/html`)
-
----
-
-#### 5. Raw QR Code JSON (`GET /qr/raw`)
-Menyediakan string QR mentah dan Data URL PNG jika ingin disematkan pada dashboard eksternal.
-* **Autentikasi:** Publik
+#### 4. Raw QR Code JSON (`GET /qr/raw`)
+Menyediakan string QR mentah dan Data URL PNG untuk dirender oleh panel admin (melalui app backend). QR berotasi otomatis saat kedaluwarsa — polling ±4 detik lalu render ulang `qr_data_url`.
+* **Autentikasi:** Wajib API Key
 * **Contoh Respons (200 OK):**
 ```json
 {
@@ -221,7 +213,7 @@ Menyediakan string QR mentah dan Data URL PNG jika ingin disematkan pada dashboa
 
 ---
 
-#### 6. Request Kode Pairing 8 Digit (`POST /pair-code`)
+#### 5. Request Kode Pairing 8 Digit (`POST /pair-code`)
 Menghasilkan 8 digit kode alfanumerik untuk menghubungkan nomor WhatsApp tanpa perlu kamera/scan QR.
 * **Autentikasi:** Wajib API Key
 * **Request Body:**
@@ -246,20 +238,20 @@ Menghasilkan 8 digit kode alfanumerik untuk menghubungkan nomor WhatsApp tanpa p
 
 ---
 
-#### 7. Putuskan Sesi & Logout (`POST /logout`)
+#### 6. Putuskan Sesi & Logout (`POST /logout`)
 Memutuskan sesi WhatsApp dari server dan membersihkan file kredensial di disk `sessions/`. Gunakan untuk melepas tautan device atau berganti nomor — setelah ini wajib pairing ulang (QR / kode 8 digit).
 * **Autentikasi:** Wajib API Key
 * **Contoh Respons (200 OK):**
 ```json
 {
   "status": "success",
-  "message": "WhatsApp berhasil logout. Sesi lama telah dibersihkan. Silakan scan QR baru di /qr."
+  "message": "WhatsApp berhasil logout. Sesi lama telah dibersihkan. Lakukan pairing ulang via POST /pair-code atau GET /qr/raw."
 }
 ```
 
 ---
 
-#### 8. Restart Koneksi Tanpa Hapus Sesi (`POST /restart`)
+#### 7. Restart Koneksi Tanpa Hapus Sesi (`POST /restart`)
 Memutus socket WhatsApp lalu menghubungkan ulang **menggunakan kredensial yang sama** — tanpa scan QR ulang. Gunakan saat koneksi macet/bermasalah tetapi sesi masih valid. Untuk kasus sesi bermasalah (mis. di-logout dari HP), gunakan `POST /logout` sebagai gantinya.
 * **Autentikasi:** Wajib API Key
 * **Contoh Respons (200 OK):**
@@ -282,7 +274,7 @@ Memutus socket WhatsApp lalu menghubungkan ulang **menggunakan kredensial yang s
 
 ---
 
-#### 9. Kirim Kode OTP (`POST /send-otp`)
+#### 8. Kirim Kode OTP (`POST /send-otp`)
 Mengirim pesan OTP resmi dengan format teks terstandarisasi DPRD.
 * **Autentikasi:** Wajib API Key
 * **Request Body:**
@@ -329,7 +321,7 @@ _Kode ini berlaku selama 5 menit. Jangan berikan kode ini kepada siapapun termas
 
 ---
 
-#### 10. Kirim Pesan Teks Bebas (`POST /send-message`)
+#### 9. Kirim Pesan Teks Bebas (`POST /send-message`)
 Mengirimkan pesan teks biasa atau pengumuman berformat WhatsApp Markdown (`*tebal*`, `_miring_`, `~coret~`).
 * **Autentikasi:** Wajib API Key
 * **Request Body:**
@@ -355,7 +347,7 @@ Mengirimkan pesan teks biasa atau pengumuman berformat WhatsApp Markdown (`*teba
 
 ---
 
-#### 11. Kirim Dokumen PDF / Undangan Rapat (`POST /send-document`)
+#### 10. Kirim Dokumen PDF / Undangan Rapat (`POST /send-document`)
 Mengirim berkas dokumen PDF (Surat Undangan Rapat Banmus, SK DPRD, Notulensi) dengan nama berkas dan teks pengantar.
 * **Autentikasi:** Wajib API Key
 * **Request Body:**
@@ -392,7 +384,7 @@ Mengirim berkas dokumen PDF (Surat Undangan Rapat Banmus, SK DPRD, Notulensi) de
 
 ---
 
-#### 12. Kirim Gambar / Dokumentasi (`POST /send-image`)
+#### 11. Kirim Gambar / Dokumentasi (`POST /send-image`)
 Mengirimkan gambar/foto dokumentasi kegiatan DPRD beserta *caption*.
 * **Autentikasi:** Wajib API Key
 * **Request Body:**
@@ -419,7 +411,7 @@ Mengirimkan gambar/foto dokumentasi kegiatan DPRD beserta *caption*.
 
 ---
 
-#### 13. Kirim Pesan Massal / Broadcast (`POST /send-bulk`)
+#### 12. Kirim Pesan Massal / Broadcast (`POST /send-bulk`)
 Mengirim pesan secara berurutan ke daftar penerima dengan proteksi **Randomized Jitter Delay (1.500ms – 2.300ms)** antar pesan untuk mencegah pemblokiran oleh Meta Anti-Spam.
 * **Autentikasi:** Wajib API Key
 * **Request Body:**
@@ -457,7 +449,7 @@ Mengirim pesan secara berurutan ke daftar penerima dengan proteksi **Randomized 
 
 ---
 
-#### 14. Cek Nomor Terdaftar di WhatsApp (`POST /check-number`)
+#### 13. Cek Nomor Terdaftar di WhatsApp (`POST /check-number`)
 Memeriksa apakah nomor telepon tertentu aktif dan terdaftar di WhatsApp Meta sebelum pesan dikirim.
 * **Autentikasi:** Wajib API Key
 * **Request Body:**
