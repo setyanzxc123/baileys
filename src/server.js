@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import crypto from 'node:crypto';
 import dotenv from 'dotenv';
 import { waClient } from './whatsapp.js';
 
@@ -7,7 +8,19 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const API_KEY = process.env.API_KEY || 'dprd_secret_wa_gateway_key_2026';
+const API_KEY = process.env.API_KEY;
+
+// Fail-fast: gateway tidak boleh berjalan tanpa API key yang eksplisit.
+// Sebelumnya ada fallback ke key default yang tercatat di git, sehingga
+// produksi bisa berjalan diam-diam dengan kunci yang diketahui publik.
+if (!API_KEY || API_KEY.trim() === '') {
+  console.error('====================================================');
+  console.error('FATAL: API_KEY belum diatur. Gateway tidak akan dijalankan.');
+  console.error('Tambahkan API_KEY pada file .env, contoh membuat kunci kuat:');
+  console.error('  node -e "console.log(\'gw_\' + require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
+  console.error('====================================================');
+  process.exit(1);
+}
 
 app.use(cors());
 app.use(express.json({ limit: '20mb' }));
@@ -26,15 +39,28 @@ app.use((req, res, next) => {
 });
 
 // Middleware autentikasi API Key
+// Perbandingan dilakukan constant-time (timingSafeEqual via hash SHA-256)
+// agar durasi respons tidak membocorkan isi kunci sedikit demi sedikit.
+const isValidApiKey = (candidate) => {
+  try {
+    const a = crypto.createHash('sha256').update(String(candidate)).digest();
+    const b = crypto.createHash('sha256').update(String(API_KEY)).digest();
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
+};
+
 const requireAuth = (req, res, next) => {
   const headerKey = req.headers['x-api-key'];
   const authHeader = req.headers['authorization'];
   const bearerKey = authHeader?.startsWith('Bearer ') ? authHeader.slice(7).trim() : null;
-  const queryKey = req.query.api_key;
 
-  const key = headerKey || bearerKey || queryKey;
+  const key = headerKey || bearerKey;
 
-  if (!API_KEY || key === API_KEY) {
+  // Hanya via header — query string tidak diterima agar kunci tidak
+  // mengendap di access log proxy maupun riwayat browser.
+  if (key && isValidApiKey(key)) {
     return next();
   }
 
@@ -214,7 +240,7 @@ app.get('/qr', (req, res) => {
           </div>
           <div class="form-group">
             <label>API Key Gateway:</label>
-            <input type="text" id="pairApiKey" value="${API_KEY}" />
+            <input type="text" id="pairApiKey" placeholder="Tempel API Key dari file .env (tidak ditampilkan otomatis demi keamanan)" />
           </div>
           <button class="btn-submit" onclick="requestPairCode()">Dapatkan Kode Pairing</button>
           

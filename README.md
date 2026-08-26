@@ -38,10 +38,15 @@ Isi variabel konfigurasi di `.env`:
 ```ini
 PORT=3001
 NODE_ENV=development
-API_KEY=dprd_secret_wa_gateway_key_2026
+API_KEY=<buat-kunci-rahasia-anda-sendiri>
 SESSION_DIR=./sessions/primary
 LOG_LEVEL=silent
 ```
+
+> ⚠️ **`API_KEY` wajib diisi.** Server menolak berjalan (fail-fast) tanpa kunci. Buat kunci kuat dengan:
+> ```bash
+> node -e "console.log('gw_' + require('crypto').randomBytes(32).toString('hex'))"
+> ```
 
 ### 3. Menjalankan Server
 ```bash
@@ -69,7 +74,7 @@ pm2 start ecosystem.config.cjs
 
 ## 📡 Ringkasan Endpoint REST API
 
-Semua endpoint pengiriman dilindungi oleh API Key via header `x-api-key: dprd_secret_wa_gateway_key_2026`.
+Semua endpoint pengiriman dilindungi oleh API Key via header `x-api-key` atau `Authorization: Bearer` (kunci diambil dari variabel `API_KEY` di file `.env` Anda).
 
 | Method | Endpoint | Fungsi & Deskripsi |
 |---|---|---|
@@ -97,7 +102,7 @@ Semua endpoint pengiriman dilindungi oleh API Key via header `x-api-key: dprd_se
 # 1. Kirim Pesan OTP
 curl -X POST http://localhost:3001/send-otp \
   -H "Content-Type: application/json" \
-  -H "x-api-key: dprd_secret_wa_gateway_key_2026" \
+  -H "x-api-key: $API_KEY_ANDA" \
   -d '{"phone": "081234567890", "otp": "748192", "app_name": "DPRD Sulteng"}'
 
 # 2. Cek Kesehatan Server
@@ -106,7 +111,7 @@ curl http://localhost:3001/health
 # 3. Cek Apakah Nomor Terdaftar di WhatsApp
 curl -X POST http://localhost:3001/check-number \
   -H "Content-Type: application/json" \
-  -H "x-api-key: dprd_secret_wa_gateway_key_2026" \
+  -H "x-api-key: $API_KEY_ANDA" \
   -d '{"phone": "081234567890"}'
 ```
 

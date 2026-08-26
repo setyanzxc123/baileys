@@ -1,10 +1,16 @@
 import assert from 'assert';
+import 'dotenv/config';
 
 console.log('🧪 Memulai Automated Smoke Test Suite untuk DPRD WhatsApp Gateway (Baileys v7)...');
 
 async function runTests() {
   const BASE_URL = 'http://localhost:3001';
-  const API_KEY = 'dprd_secret_wa_gateway_key_2026';
+  const API_KEY = process.env.API_KEY;
+
+  if (!API_KEY) {
+    console.error('❌ API_KEY tidak ditemukan. Isi di file .env lalu jalankan ulang — server menolak berjalan tanpa kunci.');
+    process.exit(1);
+  }
 
   console.log('\n--- 1. Testing Root Discovery Endpoint (GET /) ---');
   try {

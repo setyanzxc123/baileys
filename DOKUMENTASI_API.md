@@ -47,20 +47,18 @@ http://localhost:3001
 ```
 
 ### Skema Keamanan API Key
-Semua endpoint pengiriman pesan dan operasi sensitif dilindungi menggunakan **API Key**. Klien wajib menyertakan API Key melalui salah satu metode berikut:
+Semua endpoint pengiriman pesan dan operasi sensitif dilindungi menggunakan **API Key** (diambil dari variabel `API_KEY` di file `.env` server). Klien wajib menyertakan API Key melalui salah satu metode berikut:
 
 1. **Header `x-api-key` (Sangat Disarankan):**
    ```http
-   x-api-key: dprd_secret_wa_gateway_key_2026
+   x-api-key: <API_KEY_ANDA>
    ```
 2. **Header `Authorization: Bearer`:**
    ```http
-   Authorization: Bearer dprd_secret_wa_gateway_key_2026
+   Authorization: Bearer <API_KEY_ANDA>
    ```
-3. **Query Parameter (Khusus URL Browser/Webhook):**
-   ```text
-   http://127.0.0.1:3001/status?api_key=dprd_secret_wa_gateway_key_2026
-   ```
+
+> ⚠️ **Query parameter `?api_key=` TIDAK lagi didukung** — kunci di URL mengendap di access log proxy dan riwayat browser. Gunakan selalu header. Server juga menolak berjalan (fail-fast) bila `API_KEY` tidak diatur di `.env`.
 
 ---
 
@@ -452,7 +450,7 @@ namespace App\Libraries;
 class BaileysClient
 {
     private string $baseUrl = 'http://127.0.0.1:3001';
-    private string $apiKey  = 'dprd_secret_wa_gateway_key_2026';
+    private string $apiKey  = getenv('WA_GATEWAY_API_KEY'); // simpan di environment, jangan hardcode
 
     public function sendOtp(string $phone, string $otp): array
     {
@@ -492,7 +490,7 @@ class BaileysClient
 ### 2. Integrasi JavaScript / Node.js (Fetch)
 ```javascript
 const BASE_URL = 'http://127.0.0.1:3001';
-const API_KEY = 'dprd_secret_wa_gateway_key_2026';
+const API_KEY = process.env.WA_GATEWAY_API_KEY; // simpan di environment, jangan hardcode
 
 async function sendWhatsAppOtp(phone, otp) {
   try {
@@ -528,7 +526,7 @@ async function sendWhatsAppOtp(phone, otp) {
 # Kirim OTP
 curl -X POST http://127.0.0.1:3001/send-otp \
   -H "Content-Type: application/json" \
-  -H "x-api-key: dprd_secret_wa_gateway_key_2026" \
+  -H "x-api-key: $API_KEY_ANDA" \
   -d '{"phone": "081234567890", "otp": "992145"}'
 
 # Cek Status Kesehatan
@@ -537,6 +535,6 @@ curl http://127.0.0.1:3001/health
 # Cek Nomor Terdaftar
 curl -X POST http://127.0.0.1:3001/check-number \
   -H "Content-Type: application/json" \
-  -H "x-api-key: dprd_secret_wa_gateway_key_2026" \
+  -H "x-api-key: $API_KEY_ANDA" \
   -d '{"phone": "081234567890"}'
 ```
