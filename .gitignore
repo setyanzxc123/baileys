@@ -1,6 +1,5 @@
 # Dependencies
 node_modules/
-package-lock.json
 
 # Session storage (Credentials & Signal encryption keys)
 sessions/
