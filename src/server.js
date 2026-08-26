@@ -196,7 +196,7 @@ app.get('/qr/raw', requireAuth, (req, res) => {
 
 // 5. Endpoint Kirim Pesan Teks
 app.post('/send-message', requireAuth, sendLimiter, async (req, res) => {
-  const { phone, message, text } = req.body;
+  const { phone, message, text } = req.body || {};
   const content = message || text;
 
   if (!phone) {
@@ -232,7 +232,7 @@ app.post('/send-message', requireAuth, sendLimiter, async (req, res) => {
 
 // 6. Endpoint Khusus Kirim OTP
 app.post('/send-otp', requireAuth, sendLimiter, otpCooldown, otpHourly, async (req, res) => {
-  const { phone, otp, app_name } = req.body;
+  const { phone, otp, app_name } = req.body || {};
 
   if (!phone || !otp) {
     return res.status(422).json({
@@ -266,7 +266,7 @@ app.post('/send-otp', requireAuth, sendLimiter, otpCooldown, otpHourly, async (r
 
 // 7. Endpoint Kirim Dokumen PDF / Berkas
 app.post('/send-document', requireAuth, sendLimiter, async (req, res) => {
-  const { phone, document_url, url, file_name, filename, caption, mimetype } = req.body;
+  const { phone, document_url, url, file_name, filename, caption, mimetype } = req.body || {};
   const docUrl = document_url || url;
   const docName = file_name || filename || 'Undangan_DPRD.pdf';
 
@@ -308,7 +308,7 @@ app.post('/send-document', requireAuth, sendLimiter, async (req, res) => {
 
 // 8. Endpoint Kirim Gambar
 app.post('/send-image', requireAuth, sendLimiter, async (req, res) => {
-  const { phone, image_url, url, caption } = req.body;
+  const { phone, image_url, url, caption } = req.body || {};
   const imgUrl = image_url || url;
 
   if (!phone) {
@@ -344,7 +344,7 @@ app.post('/send-image', requireAuth, sendLimiter, async (req, res) => {
 
 // 9. Endpoint Kirim Pesan Beruntun (Bulk Broadcast)
 app.post('/send-bulk', requireAuth, sendLimiter, async (req, res) => {
-  const { recipients, delay_ms } = req.body;
+  const { recipients, delay_ms } = req.body || {};
 
   if (!Array.isArray(recipients) || recipients.length === 0) {
     return res.status(422).json({
@@ -372,7 +372,7 @@ app.post('/send-bulk', requireAuth, sendLimiter, async (req, res) => {
 
 // 10. Endpoint Request Pairing Code 8 Digit
 app.post('/pair-code', requireAuth, pairLimiter, async (req, res) => {
-  const { phone } = req.body;
+  const { phone } = req.body || {};
 
   if (!phone) {
     return res.status(422).json({
@@ -398,7 +398,7 @@ app.post('/pair-code', requireAuth, pairLimiter, async (req, res) => {
 
 // 11. Endpoint Cek Nomor Terdaftar di WhatsApp
 app.post('/check-number', requireAuth, sendLimiter, async (req, res) => {
-  const { phone } = req.body;
+  const { phone } = req.body || {};
 
   if (!phone) {
     return res.status(422).json({
@@ -462,6 +462,38 @@ app.post('/restart', requireAuth, pairLimiter, async (req, res) => {
       code: 'RESTART_FAILED',
     });
   }
+});
+
+// 14. Fallback 404 — tanpa ini Express menjawab HTML default; API harus konsisten JSON.
+app.use((req, res) => {
+  return res.status(404).json({
+    status: 'error',
+    code: 'NOT_FOUND',
+    message: `Endpoint '${req.method} ${req.path}' tidak ditemukan.`,
+  });
+});
+
+// Penangan error terakhir: menjawab JSON konsisten untuk semua kegagalan,
+// termasuk error body-parser (JSON rusak = 400). Pesan error hanya
+// diteruskan untuk kegagalan 4xx yang ditandai expose oleh body-parser;
+// error internal disembunyikan agar stack trace dan path server tidak
+// bocor ke pemanggil — cukup dicatat di log sisi server.
+app.use((err, req, res, next) => {
+  const isClientError = Number.isInteger(err.status) && err.status >= 400 && err.status < 500;
+  const status = isClientError ? err.status : 500;
+  const message = isClientError && err.expose && err.message
+    ? err.message
+    : 'Terjadi kesalahan internal saat memproses permintaan.';
+
+  if (!isClientError) {
+    console.error(`[HTTP] Unhandled error pada ${req.method} ${req.path}:`, err);
+  }
+
+  return res.status(status).json({
+    status: 'error',
+    code: isClientError ? (err.type || 'BAD_REQUEST') : 'INTERNAL_ERROR',
+    message,
+  });
 });
 
 // Jalankan server Express dan inisialisasi Baileys v7

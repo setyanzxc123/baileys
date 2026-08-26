@@ -80,6 +80,40 @@ test('GET /qr (halaman HTML) — sudah dihapus, 404', async () => {
   assert.strictEqual((await fetch(`${BASE_URL}/qr`)).status, 404);
 });
 
+test('POST /send-message dengan Content-Type text/plain — 422 JSON, bukan 500 HTML', async () => {
+  const res = await fetch(`${BASE_URL}/send-message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain', 'x-api-key': API_KEY },
+    body: 'hello',
+  });
+  // Di Express 5 req.body undefined saat content-type tidak dikenal parser;
+  // handler harus guard dengan `req.body || {}` sehingga jawabannya 422 validasi,
+  // bukan TypeError 500 dengan stack trace HTML.
+  const data = await res.json();
+  assert.strictEqual(res.status, 422);
+  assert.strictEqual(data.status, 'error');
+});
+
+test('POST /send-message dengan body JSON rusak — 400 JSON (bukan HTML stack trace)', async () => {
+  const res = await fetch(`${BASE_URL}/send-message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+    body: '{"phone": broken',
+  });
+  assert.match(res.headers.get('content-type') || '', /application\/json/);
+  const data = await res.json();
+  assert.strictEqual(res.status, 400);
+  assert.strictEqual(data.status, 'error');
+});
+
+test('GET /nonexistent — 404 JSON konsisten, bukan HTML default Express', async () => {
+  const res = await fetch(`${BASE_URL}/nonexistent`);
+  assert.match(res.headers.get('content-type') || '', /application\/json/);
+  const data = await res.json();
+  assert.strictEqual(res.status, 404);
+  assert.strictEqual(data.code, 'NOT_FOUND');
+});
+
 test('POST /send-otp tanpa parameter otp — 422', async () => {
   const res = await jsonPost('/send-otp', { phone: '08123456789' }, { 'x-api-key': API_KEY });
   assert.strictEqual(res.status, 422);
