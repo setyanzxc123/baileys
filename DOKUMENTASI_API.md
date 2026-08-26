@@ -87,8 +87,23 @@ Semua endpoint pengiriman pesan dan operasi sensitif dilindungi menggunakan **AP
 |---|---|---|
 | **401** | `UNAUTHORIZED` | Header API Key tidak ada atau salah. |
 | **422** | `VALIDATION_ERROR` | Parameter wajib (`phone`, `otp`, `message`, dll.) kosong atau tidak valid. |
+| **429** | `RATE_LIMITED` | Batas permintaan per menite per IP terlampaui (endpoint kirim / pairing). Header `Retry-After` berisi detik tunggu. |
+| **429** | `OTP_COOLDOWN` | OTP ke nomor yang sama baru saja dikirim — tunggu `OTP_COOLDOWN_SECONDS` (default 60 detik). |
+| **429** | `OTP_HOURLY_LIMIT` | Nomor tersebut telah menerima maksimum OTP dalam satu jam (default 5). |
 | **503** | `WA_GATEWAY_OFFLINE` | Server WhatsApp belum di-scan QR / sedang terputus koneksinya. |
 | **500** | `SEND_FAILED` | Terjadi kesalahan internal saat mengirimkan pesan ke server Meta. |
+
+### ⏱️ Rate Limiting Bawaan Gateway
+Gateway memasang jaring pengaman tingkat kedua (kebijakan bisnis yang detail tetap sebaiknya berada di aplikasi konsumen):
+
+| Lingkup | Default | Variabel Env |
+|---|---|---|
+| Semua endpoint kirim + `check-number` (per IP) | 60 permintaan/menit | `RATE_LIMIT_SEND_PER_MINUTE` |
+| `POST /pair-code` (per IP) | 5 permintaan/menit | `RATE_LIMIT_PAIR_PER_MINUTE` |
+| OTP ke nomor yang sama | 1 per 60 detik | `OTP_COOLDOWN_SECONDS` |
+| OTP ke nomor yang sama (per jam) | 5 per jam | `OTP_MAX_PER_PHONE_PER_HOUR` |
+
+> Respons 429 menyertakan header `Retry-After` (detik) dan field `retry_after_seconds`. Jika gateway berjalan di belakang nginx/reverse proxy, set `TRUST_PROXY=true` agar limit per-IP menghitung IP klien asli.
 
 ---
 

@@ -110,6 +110,27 @@ async function runTests() {
     console.error('❌ Offline handling test failed:', e.message);
   }
 
+  console.log('\n--- 6. Testing OTP Rate Limit Cooldown (429 per nomor) ---');
+  try {
+    // Nomor unik khusus seksi ini agar bucket cooldown tidak bentrok dengan seksi lain
+    const opts = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
+      body: JSON.stringify({ phone: '081239990006', otp: '555111' }),
+    };
+
+    const resFirst = await fetch(`${BASE_URL}/send-otp`, opts);
+    console.log(`ℹ️  Kirim OTP pertama -> ${resFirst.status} (503 offline / 200 online, keduanya valid).`);
+
+    const resSecond = await fetch(`${BASE_URL}/send-otp`, opts);
+    const dataSecond = await resSecond.json();
+    assert.strictEqual(resSecond.status, 429);
+    assert.strictEqual(dataSecond.code, 'OTP_COOLDOWN');
+    console.log('✅ OTP kedua ke nomor yang sama dalam cooldown ditolak 429 (OTP_COOLDOWN).');
+  } catch (e) {
+    console.error('❌ OTP cooldown test failed:', e.message);
+  }
+
   console.log('\n🎉 ALL SMOKE TESTS PASSED SUCCESSFULLY! 🚀');
 }
 

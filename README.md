@@ -18,6 +18,7 @@ Microservice pengirim pesan WhatsApp OTP, notifikasi, dokumen PDF, dan broadcast
 * 📄 **Dukungan Media & Berkas:** Kirim dokumen PDF (Surat Undangan Rapat / SK) dan gambar secara *streaming*.
 * 📢 **Broadcast Massal:** Endpoint `POST /send-bulk` dilengkapi *randomized jitter delay* (1.500ms – 2.300ms) untuk mencegah Meta anti-spam.
 * 🛡️ **REST API Terproteksi:** Autentikasi API Key via header `x-api-key` atau `Authorization: Bearer <token>`.
+* 🚦 **Rate Limiting Bawaan:** Cap per IP untuk endpoint kirim & pairing, plus dedup OTP per nomor (cooldown 60 detik, maks 5/jam) — respons 429 dengan header `Retry-After`.
 * 📊 **Monitoring Realtime:** Endpoint `GET /health` menyertakan info *uptime* dan penggunaan memori RAM Heap Node.js.
 * 🔄 **Auto-Reconnect Tangguh:** Penanganan status code `@hapi/boom` (`401` logout, `515` restart, `408/428/503` exponential backoff).
 
@@ -41,6 +42,13 @@ NODE_ENV=development
 API_KEY=<buat-kunci-rahasia-anda-sendiri>
 SESSION_DIR=./sessions/primary
 LOG_LEVEL=silent
+
+# Rate limiting (opsional, ada default)
+RATE_LIMIT_SEND_PER_MINUTE=60
+RATE_LIMIT_PAIR_PER_MINUTE=5
+OTP_COOLDOWN_SECONDS=60
+OTP_MAX_PER_PHONE_PER_HOUR=5
+TRUST_PROXY=false
 ```
 
 > ⚠️ **`API_KEY` wajib diisi.** Server menolak berjalan (fail-fast) tanpa kunci. Buat kunci kuat dengan:

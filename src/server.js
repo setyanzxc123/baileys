@@ -3,6 +3,7 @@ import cors from 'cors';
 import crypto from 'node:crypto';
 import dotenv from 'dotenv';
 import { waClient } from './whatsapp.js';
+import { createRateLimiter, clientIpKey } from './rateLimit.js';
 
 dotenv.config();
 
@@ -20,6 +21,13 @@ if (!API_KEY || API_KEY.trim() === '') {
   console.error('  node -e "console.log(\'gw_\' + require(\'crypto\').randomBytes(32).toString(\'hex\'))"');
   console.error('====================================================');
   process.exit(1);
+}
+
+// Saat gateway dijalankan di belakang nginx/reverse proxy, aktifkan
+// TRUST_PROXY=true agar req.ip membaca IP asli dari X-Forwarded-For —
+// tanpa ini semua pemanggil tampak sebagai satu IP proxy yang sama.
+if (process.env.TRUST_PROXY === 'true') {
+  app.set('trust proxy', 1);
 }
 
 app.use(cors());
@@ -69,6 +77,59 @@ const requireAuth = (req, res, next) => {
     message: 'Akses ditolak. API Key tidak valid atau belum disertakan pada header x-api-key / Authorization Bearer.',
   });
 };
+
+// ============================================================
+// Rate Limiting — jaring pengaman di sisi gateway.
+// App konsumen tetap memegang kebijakan bisnis yang detail;
+// limit di sini membatasi dampak terburuk (bug loop, key bocor,
+// atau caller nakal) terhadap nomor WhatsApp institusi.
+// Dijalankan SETELAH auth agar percobaan 401 tidak memakan kuota.
+// ============================================================
+const envInt = (value, fallback) => {
+  const n = Number(value);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
+};
+
+// Cap global per IP untuk semua endpoint yang memicu aktivitas WhatsApp
+const sendLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: envInt(process.env.RATE_LIMIT_SEND_PER_MINUTE, 60),
+  keyFn: clientIpKey,
+  errMessage: 'Batas permintaan endpoint pengiriman per menit telah terlampaui.',
+});
+
+// Pairing code menumbuk endpoint pairing WhatsApp — sangat sensitif abuse
+const pairLimiter = createRateLimiter({
+  windowMs: 60_000,
+  max: envInt(process.env.RATE_LIMIT_PAIR_PER_MINUTE, 5),
+  keyFn: clientIpKey,
+  errMessage: 'Batas permintaan pairing code per menit telah terlampaui.',
+});
+
+// Dedup OTP per nomor: cegah spam OTP beruntun ke nomor yang sama.
+// Payload tanpa phone/otp tidak dihitung (biar validasi 422 yang menolak).
+const otpPhoneKey = (req) => {
+  const body = req.body || {};
+  if (!body.phone || !body.otp) return null;
+  const clean = waClient.cleanPhoneNumber(body.phone);
+  return clean ? `otp:${clean}` : null;
+};
+
+const otpCooldown = createRateLimiter({
+  windowMs: envInt(process.env.OTP_COOLDOWN_SECONDS, 60) * 1000,
+  max: 1,
+  keyFn: otpPhoneKey,
+  errCode: 'OTP_COOLDOWN',
+  errMessage: 'OTP ke nomor ini baru saja dikirim.',
+});
+
+const otpHourly = createRateLimiter({
+  windowMs: 3_600_000,
+  max: envInt(process.env.OTP_MAX_PER_PHONE_PER_HOUR, 5),
+  keyFn: otpPhoneKey,
+  errCode: 'OTP_HOURLY_LIMIT',
+  errMessage: 'Batas maksimum OTP per nomor dalam satu jam telah tercapai.',
+});
 
 // 1. Root Info & Endpoints Discovery
 app.get('/', (req, res) => {
@@ -313,7 +374,7 @@ app.get('/qr', (req, res) => {
 });
 
 // 6. Endpoint Kirim Pesan Teks
-app.post('/send-message', requireAuth, async (req, res) => {
+app.post('/send-message', requireAuth, sendLimiter, async (req, res) => {
   const { phone, message, text } = req.body;
   const content = message || text;
 
@@ -349,7 +410,7 @@ app.post('/send-message', requireAuth, async (req, res) => {
 });
 
 // 7. Endpoint Khusus Kirim OTP
-app.post('/send-otp', requireAuth, async (req, res) => {
+app.post('/send-otp', requireAuth, sendLimiter, otpCooldown, otpHourly, async (req, res) => {
   const { phone, otp, app_name } = req.body;
 
   if (!phone || !otp) {
@@ -383,7 +444,7 @@ app.post('/send-otp', requireAuth, async (req, res) => {
 });
 
 // 8. Endpoint Kirim Dokumen PDF / Berkas
-app.post('/send-document', requireAuth, async (req, res) => {
+app.post('/send-document', requireAuth, sendLimiter, async (req, res) => {
   const { phone, document_url, url, file_name, filename, caption, mimetype } = req.body;
   const docUrl = document_url || url;
   const docName = file_name || filename || 'Undangan_DPRD.pdf';
@@ -425,7 +486,7 @@ app.post('/send-document', requireAuth, async (req, res) => {
 });
 
 // 9. Endpoint Kirim Gambar
-app.post('/send-image', requireAuth, async (req, res) => {
+app.post('/send-image', requireAuth, sendLimiter, async (req, res) => {
   const { phone, image_url, url, caption } = req.body;
   const imgUrl = image_url || url;
 
@@ -461,7 +522,7 @@ app.post('/send-image', requireAuth, async (req, res) => {
 });
 
 // 10. Endpoint Kirim Pesan Beruntun (Bulk Broadcast)
-app.post('/send-bulk', requireAuth, async (req, res) => {
+app.post('/send-bulk', requireAuth, sendLimiter, async (req, res) => {
   const { recipients, delay_ms } = req.body;
 
   if (!Array.isArray(recipients) || recipients.length === 0) {
@@ -489,7 +550,7 @@ app.post('/send-bulk', requireAuth, async (req, res) => {
 });
 
 // 11. Endpoint Request Pairing Code 8 Digit
-app.post('/pair-code', requireAuth, async (req, res) => {
+app.post('/pair-code', requireAuth, pairLimiter, async (req, res) => {
   const { phone } = req.body;
 
   if (!phone) {
@@ -515,7 +576,7 @@ app.post('/pair-code', requireAuth, async (req, res) => {
 });
 
 // 12. Endpoint Cek Nomor Terdaftar di WhatsApp
-app.post('/check-number', requireAuth, async (req, res) => {
+app.post('/check-number', requireAuth, sendLimiter, async (req, res) => {
   const { phone } = req.body;
 
   if (!phone) {
