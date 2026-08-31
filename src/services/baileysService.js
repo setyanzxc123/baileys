@@ -28,105 +28,140 @@ export class BaileysService {
     this.maxReconnectDelay = 15000;
     this.lastDisconnect = null;
     this.reconnectTimer = null;
+    this.isInitializing = false;
+  }
+
+  destroySocket(socket) {
+    if (!socket) return;
+    try {
+      socket.ev?.removeAllListeners?.();
+      socket.end?.(undefined);
+    } catch {
+      // Ignore errors when closing an already closed socket
+    }
+  }
+
+  cancelReconnectTimer() {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
   }
 
   async init() {
+    if (this.isInitializing) return;
+    this.isInitializing = true;
+    this.cancelReconnectTimer();
+
     sessionService.ensureDirectory();
 
-    const { state, saveCreds } = await useMultiFileAuthState(this.sessionDir);
+    try {
+      const { state, saveCreds } = await useMultiFileAuthState(this.sessionDir);
 
-    console.log('[WA-GATEWAY] Menginisialisasi Baileys v7 Engine...');
-    this.status = 'connecting';
+      console.log('[WA-GATEWAY] Menginisialisasi Baileys v7 Engine...');
+      this.status = 'connecting';
 
-    this.sock = makeWASocket({
-      auth: {
-        creds: state.creds,
-        keys: makeCacheableSignalKeyStore(state.keys, this.logger),
-      },
-      browser: Browsers.macOS('Desktop'),
-      syncFullHistory: false,
-      markOnlineOnConnect: false,
-      generateHighQualityLinkPreview: false,
-      msgRetryCounterCache: this.msgRetryCounterCache,
-      logger: this.logger,
-      defaultQueryTimeoutMs: 30000,
-    });
+      const socket = makeWASocket({
+        auth: {
+          creds: state.creds,
+          keys: makeCacheableSignalKeyStore(state.keys, this.logger),
+        },
+        browser: Browsers.macOS('Desktop'),
+        syncFullHistory: false,
+        markOnlineOnConnect: false,
+        generateHighQualityLinkPreview: false,
+        msgRetryCounterCache: this.msgRetryCounterCache,
+        logger: this.logger,
+        defaultQueryTimeoutMs: 30000,
+      });
 
-    this.sock.ev.on('creds.update', saveCreds);
+      this.sock = socket;
+      this.sock.ev.on('creds.update', saveCreds);
 
-    const socket = this.sock;
+      socket.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
 
-    socket.ev.on('connection.update', async (update) => {
-      const { connection, lastDisconnect, qr } = update;
-
-      if (qr) {
-        this.qrRaw = qr;
-        try {
-          this.qrDataUrl = await QRCode.toDataURL(qr);
-        } catch (e) {
-          console.error('[WA-GATEWAY] Gagal membuat QR Data URL:', e.message);
-        }
-        this.status = 'qr_ready';
-        console.log('[WA-GATEWAY] QR Code siap dipindai via GET /qr/raw.');
-      }
-
-      if (connection === 'open') {
-        this.status = 'connected';
-        this.qrRaw = null;
-        this.qrDataUrl = null;
-        this.reconnectAttempts = 0;
-
-        const rawJid = this.sock.user?.id || '';
-        const normalizedJid = jidNormalizedUser(rawJid);
-        const phone = normalizedJid.split('@')[0];
-
-        this.user = {
-          id: normalizedJid,
-          name: this.sock.user?.name || config.serviceName,
-          phone,
-        };
-
-        console.log(`[WA-GATEWAY] WhatsApp TERHUBUNG. Nomor pengirim: +${phone}`);
-      }
-
-      if (connection === 'close') {
-        if (this.sock !== socket) {
-          console.log('[WA-GATEWAY] Event close dari socket lama diabaikan.');
-          return;
+        if (qr) {
+          this.qrRaw = qr;
+          try {
+            this.qrDataUrl = await QRCode.toDataURL(qr);
+          } catch (e) {
+            console.error('[WA-GATEWAY] Gagal membuat QR Data URL:', e.message);
+          }
+          this.status = 'qr_ready';
+          console.log('[WA-GATEWAY] QR Code siap dipindai via GET /qr/raw.');
         }
 
-        const boomError = lastDisconnect?.error instanceof Boom ? lastDisconnect.error : null;
-        const statusCode = boomError?.output?.statusCode || lastDisconnect?.error?.output?.statusCode;
-        const isLoggedOut = statusCode === DisconnectReason.loggedOut;
-        const isRestartRequired = statusCode === DisconnectReason.restartRequired;
+        if (connection === 'open') {
+          this.status = 'connected';
+          this.qrRaw = null;
+          this.qrDataUrl = null;
+          this.reconnectAttempts = 0;
 
-        this.status = 'disconnected';
-        this.user = null;
+          const rawJid = this.sock.user?.id || '';
+          const normalizedJid = jidNormalizedUser(rawJid);
+          const phone = normalizedJid.split('@')[0];
 
-        this.lastDisconnect = {
-          at: new Date().toISOString(),
-          code: statusCode ?? null,
-          reason: lastDisconnect?.error?.message || 'Unknown',
-        };
+          this.user = {
+            id: normalizedJid,
+            name: this.sock.user?.name || config.serviceName,
+            phone,
+          };
 
-        console.warn(`[WA-GATEWAY] Koneksi terputus. Kode status: ${statusCode} (${lastDisconnect?.error?.message || 'Unknown'})`);
-
-        if (isLoggedOut) {
-          console.log('[WA-GATEWAY] Sesi logout dari WhatsApp (401). Menghapus data sesi lama...');
-          sessionService.clearSession();
-          this.init();
-        } else if (isRestartRequired) {
-          console.log('[WA-GATEWAY] Restart required oleh server WhatsApp (515). Reconnecting instan...');
-          this.init();
-        } else {
-          if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
-          const delay = Math.min(3000 * Math.pow(1.5, this.reconnectAttempts), this.maxReconnectDelay);
-          this.reconnectAttempts++;
-          console.log(`[WA-GATEWAY] Mencoba menghubungkan kembali dalam ${(delay / 1000).toFixed(1)} detik (Percobaan #${this.reconnectAttempts})...`);
-          this.reconnectTimer = setTimeout(() => this.init(), delay);
+          console.log(`[WA-GATEWAY] WhatsApp TERHUBUNG. Nomor pengirim: +${phone}`);
         }
-      }
-    });
+
+        if (connection === 'close') {
+          if (this.sock !== socket) {
+            console.log('[WA-GATEWAY] Event close dari socket lama diabaikan.');
+            return;
+          }
+
+          const boomError = lastDisconnect?.error instanceof Boom ? lastDisconnect.error : null;
+          const statusCode = boomError?.output?.statusCode || lastDisconnect?.error?.output?.statusCode;
+          const isLoggedOut = statusCode === DisconnectReason.loggedOut;
+          const isRestartRequired = statusCode === DisconnectReason.restartRequired;
+
+          this.status = 'disconnected';
+          this.user = null;
+
+          this.lastDisconnect = {
+            at: new Date().toISOString(),
+            code: statusCode ?? null,
+            reason: lastDisconnect?.error?.message || 'Unknown',
+          };
+
+          console.warn(`[WA-GATEWAY] Koneksi terputus. Kode status: ${statusCode} (${lastDisconnect?.error?.message || 'Unknown'})`);
+
+          this.destroySocket(socket);
+          this.sock = null;
+
+          if (isLoggedOut) {
+            console.log('[WA-GATEWAY] Sesi logout dari WhatsApp (401). Menghapus data sesi lama...');
+            sessionService.clearSession();
+            this.cancelReconnectTimer();
+            this.reconnectTimer = setTimeout(() => this.init(), 1000);
+          } else if (isRestartRequired) {
+            console.log('[WA-GATEWAY] Restart required oleh server WhatsApp (515). Reconnecting...');
+            this.cancelReconnectTimer();
+            this.reconnectTimer = setTimeout(() => this.init(), 500);
+          } else {
+            this.cancelReconnectTimer();
+            const delay = Math.min(3000 * Math.pow(1.5, this.reconnectAttempts), this.maxReconnectDelay);
+            this.reconnectAttempts++;
+            console.log(`[WA-GATEWAY] Mencoba menghubungkan kembali dalam ${(delay / 1000).toFixed(1)} detik (Percobaan #${this.reconnectAttempts})...`);
+            this.reconnectTimer = setTimeout(() => this.init(), delay);
+          }
+        }
+      });
+    } catch (err) {
+      console.error('[WA-GATEWAY] Gagal inisialisasi socket:', err.message);
+      this.status = 'disconnected';
+      this.cancelReconnectTimer();
+      this.reconnectTimer = setTimeout(() => this.init(), 5000);
+    } finally {
+      this.isInitializing = false;
+    }
   }
 
   async waitForConnection(maxWaitMs = 5000) {
@@ -372,21 +407,10 @@ export class BaileysService {
   }
 
   async restart() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-
+    this.cancelReconnectTimer();
     const socket = this.sock;
-
-    if (socket) {
-      this.sock = null;
-      try {
-        socket.end(undefined);
-      } catch {
-        // Socket already closed
-      }
-    }
+    this.sock = null;
+    this.destroySocket(socket);
 
     this.status = 'disconnected';
     this.qrRaw = null;
@@ -398,6 +422,7 @@ export class BaileysService {
   }
 
   async logout() {
+    this.cancelReconnectTimer();
     const socket = this.sock;
     this.sock = null;
 
@@ -409,33 +434,23 @@ export class BaileysService {
       // Connection already closed
     }
 
+    this.destroySocket(socket);
     sessionService.clearSession();
+
     this.status = 'disconnected';
     this.user = null;
     this.qrRaw = null;
     this.qrDataUrl = null;
 
-    if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = setTimeout(() => this.init(), 1000);
   }
 
   shutdown() {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer);
-      this.reconnectTimer = null;
-    }
-
+    this.cancelReconnectTimer();
     const socket = this.sock;
     this.sock = null;
     this.status = 'disconnected';
-
-    if (socket) {
-      try {
-        socket.end(undefined);
-      } catch {
-        // Socket already closed
-      }
-    }
+    this.destroySocket(socket);
 
     console.log('[WA-GATEWAY] Koneksi WhatsApp ditutup tanpa logout.');
   }
