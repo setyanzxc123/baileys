@@ -87,6 +87,14 @@ const handleShutdown = (signal) => {
   }, 500);
 };
 
+process.on('unhandledRejection', (reason) => {
+  console.error('[WA-GATEWAY] Unhandled Rejection:', reason?.message || reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[WA-GATEWAY] Uncaught Exception:', err?.message || err);
+});
+
 process.on('SIGINT', () => handleShutdown('SIGINT'));
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 process.on('exit', () => sessionService.releaseLock());
