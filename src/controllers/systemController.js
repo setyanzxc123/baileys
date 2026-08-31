@@ -17,6 +17,7 @@ export const getRootDiscovery = (req, res) => {
       send_document: 'POST /send-document (Protected)',
       send_image: 'POST /send-image (Protected)',
       send_bulk: 'POST /send-bulk (Protected)',
+      get_job: 'GET /jobs/:job_id (Protected)',
       pair_code: 'POST /pair-code (Protected)',
       check_number: 'POST /check-number (Protected)',
       logout: 'POST /logout (Protected)',

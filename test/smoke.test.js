@@ -22,7 +22,7 @@ test('GET / — service discovery mengembalikan katalog endpoint', async () => {
   assert.strictEqual(res.status, 200);
   assert.strictEqual(data.engine, 'Baileys v7');
   assert.strictEqual(data.status, 'running');
-  for (const key of ['send_otp', 'send_document', 'send_image', 'send_bulk']) {
+  for (const key of ['send_otp', 'send_document', 'send_image', 'send_bulk', 'get_job']) {
     assert.ok(data.endpoints?.[key], `endpoint '${key}' hilang dari discovery`);
   }
 });
@@ -126,6 +126,18 @@ test('POST /send-bulk delay_ms di bawah floor anti-spam — 422 BULK_DELAY_TOO_S
   assert.strictEqual(data.code, 'BULK_DELAY_TOO_SHORT');
 });
 
+test('GET /jobs/:job_id tanpa API key — ditolak 401', async () => {
+  const res = await fetch(`${BASE_URL}/jobs/job_test_123`);
+  assert.strictEqual(res.status, 401);
+});
+
+test('GET /jobs/:job_id id tidak ditemukan — 404 JOB_NOT_FOUND', async () => {
+  const res = await fetch(`${BASE_URL}/jobs/job_not_exist`, { headers: { 'x-api-key': API_KEY } });
+  const data = await res.json();
+  assert.strictEqual(res.status, 404);
+  assert.strictEqual(data.code, 'JOB_NOT_FOUND');
+});
+
 test('POST /send-otp saat gateway offline — fast-fail 503 WA_GATEWAY_OFFLINE', async () => {
   const statusRes = await fetch(`${BASE_URL}/status`, { headers: { 'x-api-key': API_KEY } });
   const status = await statusRes.json();
@@ -138,6 +150,27 @@ test('POST /send-otp saat gateway offline — fast-fail 503 WA_GATEWAY_OFFLINE',
   }
 
   const res = await jsonPost('/send-otp', { phone: samplePhone(), otp: '123456' }, { 'x-api-key': API_KEY });
+  const data = await res.json();
+  assert.strictEqual(res.status, 503);
+  assert.strictEqual(data.code, 'WA_GATEWAY_OFFLINE');
+});
+
+test('POST /send-bulk saat gateway offline — fast-fail 503 WA_GATEWAY_OFFLINE', async () => {
+  const statusRes = await fetch(`${BASE_URL}/status`, { headers: { 'x-api-key': API_KEY } });
+  const status = await statusRes.json();
+
+  if (status.data?.connected) {
+    return {
+      skipped: true,
+      reason: 'gateway sedang online — fast-fail offline dilewati',
+    };
+  }
+
+  const res = await jsonPost(
+    '/send-bulk',
+    { recipients: [{ phone: samplePhone(), message: 'tes' }] },
+    { 'x-api-key': API_KEY }
+  );
   const data = await res.json();
   assert.strictEqual(res.status, 503);
   assert.strictEqual(data.code, 'WA_GATEWAY_OFFLINE');

@@ -7,6 +7,7 @@ import {
   sendDocument,
   sendImage,
   sendBulk,
+  getJobStatus,
   checkNumber,
 } from '../controllers/messageController.js';
 
@@ -17,6 +18,7 @@ router.post('/send-otp', requireAuth, sendLimiter, otpCooldown, otpHourly, sendO
 router.post('/send-document', requireAuth, sendLimiter, sendDocument);
 router.post('/send-image', requireAuth, sendLimiter, sendImage);
 router.post('/send-bulk', requireAuth, sendLimiter, sendBulk);
+router.get('/jobs/:job_id', requireAuth, getJobStatus);
 router.post('/check-number', requireAuth, sendLimiter, checkNumber);
 
 export default router;

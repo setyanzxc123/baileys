@@ -1,4 +1,5 @@
 import { waClient } from '../services/baileysService.js';
+import { queueService } from '../services/queueService.js';
 import { config } from '../config/app.js';
 import { OTP_PATTERN, DEFAULT_APP_NAME, DEFAULT_DOC_NAME, DEFAULT_DOC_MIMETYPE } from '../config/constants.js';
 
@@ -155,7 +156,7 @@ export const sendImage = async (req, res) => {
   }
 };
 
-export const sendBulk = async (req, res) => {
+export const sendBulk = (req, res) => {
   const { recipients, delay_ms } = req.body || {};
 
   if (!Array.isArray(recipients) || recipients.length === 0) {
@@ -182,21 +183,42 @@ export const sendBulk = async (req, res) => {
     });
   }
 
-  try {
-    const result = await waClient.sendBulk(recipients, delay_ms || config.bulk.defaultDelayMs);
-    return res.json({
-      status: 'success',
-      message: `Proses pengiriman bulk selesai. Berhasil: ${result.success_count}, Gagal: ${result.failed_count}`,
-      data: result,
-    });
-  } catch (error) {
-    const isOffline = !waClient.getStatus().connected;
-    return res.status(isOffline ? 503 : 500).json({
+  const isOffline = !waClient.getStatus().connected;
+  if (isOffline) {
+    return res.status(503).json({
       status: 'error',
-      message: error.message || 'Gagal menjalankan pengiriman massal.',
-      code: isOffline ? 'WA_GATEWAY_OFFLINE' : 'BULK_FAILED',
+      message: 'WhatsApp Gateway belum terhubung. Silakan scan QR Code terlebih dahulu.',
+      code: 'WA_GATEWAY_OFFLINE',
     });
   }
+
+  const job = queueService.createBulkJob(recipients, { delayMs: delay_ms || config.bulk.defaultDelayMs });
+
+  return res.status(202).json({
+    status: 'queued',
+    message: 'Permintaan pengiriman massal diterima dan sedang diproses di antrean.',
+    job_id: job.id,
+    total: job.total,
+    check_status_url: `/jobs/${job.id}`,
+  });
+};
+
+export const getJobStatus = (req, res) => {
+  const { job_id } = req.params;
+  const job = queueService.getJob(job_id);
+
+  if (!job) {
+    return res.status(404).json({
+      status: 'error',
+      code: 'JOB_NOT_FOUND',
+      message: `Job dengan ID '${job_id}' tidak ditemukan.`,
+    });
+  }
+
+  return res.json({
+    status: 'success',
+    data: job,
+  });
 };
 
 export const checkNumber = async (req, res) => {
