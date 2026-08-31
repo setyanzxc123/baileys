@@ -5,6 +5,7 @@ import { requestLogger } from './middlewares/requestLogger.js';
 import { notFoundHandler, errorHandler } from './middlewares/errorHandler.js';
 import routes from './routes/index.js';
 import { waClient } from './services/baileysService.js';
+import { sessionService } from './services/sessionService.js';
 
 if (!config.apiKey || config.apiKey.trim() === '') {
   console.error('FATAL: API_KEY belum diatur. Gateway tidak akan dijalankan.');
@@ -17,7 +18,11 @@ if (config.trustProxy) {
   app.set('trust proxy', 1);
 }
 
-app.use(cors());
+const corsOptions = config.corsAllowedOrigins === '*'
+  ? { origin: '*' }
+  : { origin: config.corsAllowedOrigins };
+
+app.use(cors(corsOptions));
 app.use(express.json({ limit: '20mb' }));
 app.use(express.urlencoded({ extended: true, limit: '20mb' }));
 app.use(requestLogger);
@@ -34,6 +39,11 @@ const server = app.listen(config.port, () => {
   waClient.init().catch((err) => {
     console.error('[WA-GATEWAY] Fatal error saat inisialisasi Baileys:', err);
   });
+
+  const housekeepingInterval = setInterval(() => {
+    sessionService.housekeep(48);
+  }, 12 * 60 * 60 * 1000);
+  housekeepingInterval.unref?.();
 });
 
 let shuttingDown = false;

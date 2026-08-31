@@ -14,6 +14,9 @@ export const config = {
   logLevel: process.env.LOG_LEVEL || 'silent',
   serviceName: process.env.SERVICE_NAME || 'WhatsApp Gateway',
   trustProxy: process.env.TRUST_PROXY === 'true',
+  corsAllowedOrigins: process.env.CORS_ALLOWED_ORIGINS
+    ? process.env.CORS_ALLOWED_ORIGINS.split(',').map((s) => s.trim()).filter(Boolean)
+    : '*',
   rateLimits: {
     sendPerMinute: parsePositiveInt(process.env.RATE_LIMIT_SEND_PER_MINUTE, 60),
     pairPerMinute: parsePositiveInt(process.env.RATE_LIMIT_PAIR_PER_MINUTE, 5),
