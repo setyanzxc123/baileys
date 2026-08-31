@@ -23,8 +23,13 @@ logs/
 # Documentation reference (local)
 docs_baileys/
 
-# Panduan deployment (detail infrastruktur lokal — tidak ikut repo)
+# Panduan deployment & dokumen perencanaan lokal
 DEPLOYMENT.md
+PLAN_PRIORITY_FIX.md
+AGENTS.md
+features_list.json
+feature_list.json
+agent-progress.md
 
 # OS generated
 .DS_Store

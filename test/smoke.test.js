@@ -1,18 +1,3 @@
-/**
- * Smoke test INTEGRASI untuk DPRD WhatsApp Gateway (Baileys v7).
- *
- * Test ini memanggil HTTP server yang sedang berjalan — bukan unit test:
- *   1. Pastikan .env terisi (API_KEY wajib).
- *   2. Jalankan server: npm start
- *   3. Jalankan test:  npm test
- *
- * Exit code 1 bila ada assertion gagal atau server tidak dapat dihubungi,
- * sehingga aman dipakai sebagai gate di CI.
- *
- * Catatan: seksi OTP memicu percobaan kirim nyata ke nomor sampel. Saat
- * gateway sedang online, percobaan itu benar-benar menghubungi server
- * WhatsApp — gunakan nomor sampel seperti di bawah, jangan nomor produksi.
- */
 import assert from 'node:assert';
 import 'dotenv/config';
 
@@ -29,13 +14,7 @@ const jsonPost = (path, body, headers = {}) =>
     body: JSON.stringify(body),
   });
 
-// Nomor sampel acak per-run agar bucket cooldown OTP dari run sebelumnya
-// tidak membuat run berikutnya false-fail dengan 429 di permintaan pertama.
 const samplePhone = () => `08123${Math.floor(100000 + Math.random() * 900000)}`;
-
-// ============================================================
-// Test Cases
-// ============================================================
 
 test('GET / — service discovery mengembalikan katalog endpoint', async () => {
   const res = await fetch(`${BASE_URL}/`);
@@ -80,21 +59,18 @@ test('GET /qr (halaman HTML) — sudah dihapus, 404', async () => {
   assert.strictEqual((await fetch(`${BASE_URL}/qr`)).status, 404);
 });
 
-test('POST /send-message dengan Content-Type text/plain — 422 JSON, bukan 500 HTML', async () => {
+test('POST /send-message dengan Content-Type text/plain — 422 JSON', async () => {
   const res = await fetch(`${BASE_URL}/send-message`, {
     method: 'POST',
     headers: { 'Content-Type': 'text/plain', 'x-api-key': API_KEY },
     body: 'hello',
   });
-  // Di Express 5 req.body undefined saat content-type tidak dikenal parser;
-  // handler harus guard dengan `req.body || {}` sehingga jawabannya 422 validasi,
-  // bukan TypeError 500 dengan stack trace HTML.
   const data = await res.json();
   assert.strictEqual(res.status, 422);
   assert.strictEqual(data.status, 'error');
 });
 
-test('POST /send-message dengan body JSON rusak — 400 JSON (bukan HTML stack trace)', async () => {
+test('POST /send-message dengan body JSON rusak — 400 JSON', async () => {
   const res = await fetch(`${BASE_URL}/send-message`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-api-key': API_KEY },
@@ -106,7 +82,7 @@ test('POST /send-message dengan body JSON rusak — 400 JSON (bukan HTML stack t
   assert.strictEqual(data.status, 'error');
 });
 
-test('GET /nonexistent — 404 JSON konsisten, bukan HTML default Express', async () => {
+test('GET /nonexistent — 404 JSON konsisten', async () => {
   const res = await fetch(`${BASE_URL}/nonexistent`);
   assert.match(res.headers.get('content-type') || '', /application\/json/);
   const data = await res.json();
@@ -154,11 +130,10 @@ test('POST /send-otp saat gateway offline — fast-fail 503 WA_GATEWAY_OFFLINE',
   const statusRes = await fetch(`${BASE_URL}/status`, { headers: { 'x-api-key': API_KEY } });
   const status = await statusRes.json();
 
-  // Saat gateway online, request ini akan mengirim OTP sungguhan — dilewati.
   if (status.data?.connected) {
     return {
       skipped: true,
-      reason: 'gateway sedang online — fast-fail offline tidak diuji agar tidak mengirim OTP nyata',
+      reason: 'gateway sedang online — fast-fail offline dilewati',
     };
   }
 
@@ -173,8 +148,6 @@ test('POST /send-otp cooldown — OTP kedua ke nomor sama ditolak 429 OTP_COOLDO
   const headers = { 'x-api-key': API_KEY };
 
   const resFirst = await jsonPost('/send-otp', body, headers);
-  // 200 = online & terkirim, 500 = online tapi nomor sampel tidak terdaftar,
-  // 503 = gateway offline. Ketiganya valid untuk permintaan pertama.
   assert.ok(
     [200, 500, 503].includes(resFirst.status),
     `permintaan pertama diharapkan 200/500/503, didapat ${resFirst.status}`
@@ -200,8 +173,6 @@ test('POST /send-otp payload invalid tidak membakar cooldown nomor', async () =>
   const resInvalid = await jsonPost('/send-otp', { phone, otp: 'abcd' }, headers);
   assert.strictEqual(resInvalid.status, 422);
 
-  // OTP valid ke nomor yang sama langsung setelahnya tidak boleh kena 429 —
-  // payload yang ditolak validasi tidak menghabiskan bucket cooldown.
   const resNext = await jsonPost('/send-otp', { phone, otp: '654321' }, headers);
   assert.ok(
     [200, 500, 503].includes(resNext.status),
@@ -220,25 +191,19 @@ test('POST /restart — koneksi dimulai ulang tanpa hapus sesi', async () => {
   );
 });
 
-// ============================================================
-// Runner
-// ============================================================
-
 const run = async () => {
-  console.log(`🧪 Smoke Test Integrasi — DPRD WhatsApp Gateway (Baileys v7) → ${BASE_URL}\n`);
+  console.log(`Smoke Test Integrasi — WhatsApp Gateway (Baileys v7) -> ${BASE_URL}\n`);
 
   if (!API_KEY || API_KEY.trim() === '') {
-    console.error('❌ API_KEY tidak ditemukan di .env. Server menolak berjalan tanpa kunci — isi dulu sebelum testing.');
+    console.error('API_KEY tidak ditemukan di .env.');
     process.exit(1);
   }
 
-  // Pastikan server hidup sebelum menyalahkan gateway dengan assertion gagal.
   try {
     const res = await fetch(`${BASE_URL}/health`, { signal: AbortSignal.timeout(3000) });
     if (!res.ok) throw new Error(`GET /health menjawab ${res.status}`);
   } catch (e) {
-    console.error(`❌ Server tidak dapat dihubungi di ${BASE_URL} (${e.message}).`);
-    console.error('   Ini test integrasi — jalankan `npm start` di terminal terpisah dulu, lalu ulangi `npm test`.');
+    console.error(`Server tidak dapat dihubungi di ${BASE_URL} (${e.message}).`);
     process.exit(1);
   }
 
@@ -250,24 +215,24 @@ const run = async () => {
       const outcome = await fn();
       if (outcome?.skipped) {
         skipped++;
-        console.log(`⏭️  SKIP: ${name} — ${outcome.reason}`);
+        console.log(`SKIP: ${name} — ${outcome.reason}`);
       } else {
-        console.log(`✅ ${name}`);
+        console.log(`PASS: ${name}`);
       }
     } catch (e) {
       failed++;
-      console.error(`❌ ${name}\n   ↳ ${e.message}`);
+      console.error(`FAIL: ${name}\n   -> ${e.message}`);
     }
   }
 
   console.log(`\nHasil: ${tests.length - skipped - failed} lulus, ${failed} gagal, ${skipped} dilewati.`);
 
   if (failed > 0) {
-    console.error('💥 SMOKE TEST GAGAL.');
+    console.error('SMOKE TEST GAGAL.');
     process.exit(1);
   }
 
-  console.log('🎉 Semua smoke test yang relevan LULUS.');
+  console.log('Semua smoke test lulus.');
 };
 
 run();

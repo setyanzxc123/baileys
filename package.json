@@ -1,7 +1,7 @@
 {
-  "name": "dprd-wa-gateway",
+  "name": "whatsapp-gateway",
   "version": "1.0.0",
-  "description": "WhatsApp Gateway Microservice untuk DPRD Sulawesi Tengah menggunakan Baileys v7",
+  "description": "WhatsApp Outbound Gateway Microservice using Baileys v7",
   "type": "module",
   "main": "src/server.js",
   "scripts": {
@@ -12,9 +12,9 @@
   "keywords": [
     "whatsapp",
     "baileys",
-    "dprd",
     "gateway",
-    "otp"
+    "otp",
+    "notification"
   ],
   "author": "setyanzxc <setyanzxc@gmail.com>",
   "license": "ISC",
