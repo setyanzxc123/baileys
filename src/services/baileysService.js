@@ -129,8 +129,34 @@ export class BaileysService {
     });
   }
 
+  async waitForConnection(maxWaitMs = 5000) {
+    if (this.status === 'connected' && this.sock) {
+      return true;
+    }
+
+    if (this.status !== 'connecting') {
+      return false;
+    }
+
+    const start = Date.now();
+    const interval = 200;
+
+    while (Date.now() - start < maxWaitMs) {
+      await new Promise((resolve) => setTimeout(resolve, interval));
+      if (this.status === 'connected' && this.sock) {
+        return true;
+      }
+      if (this.status !== 'connecting') {
+        return false;
+      }
+    }
+
+    return false;
+  }
+
   async checkNumber(phone) {
-    if (this.status !== 'connected' || !this.sock) {
+    const isConnected = await this.waitForConnection(5000);
+    if (!isConnected || !this.sock) {
       throw new Error('WhatsApp Gateway belum terhubung.');
     }
 
@@ -183,7 +209,8 @@ export class BaileysService {
   }
 
   async sendMessage(phone, message) {
-    if (this.status !== 'connected' || !this.sock) {
+    const isConnected = await this.waitForConnection(5000);
+    if (!isConnected || !this.sock) {
       throw new Error('WhatsApp Gateway belum terhubung. Silakan scan QR Code terlebih dahulu.');
     }
 
@@ -214,7 +241,8 @@ export class BaileysService {
   }
 
   async sendDocument(phone, documentUrl, options = {}) {
-    if (this.status !== 'connected' || !this.sock) {
+    const isConnected = await this.waitForConnection(5000);
+    if (!isConnected || !this.sock) {
       throw new Error('WhatsApp Gateway belum terhubung. Silakan scan QR Code terlebih dahulu.');
     }
 
@@ -258,7 +286,8 @@ export class BaileysService {
   }
 
   async sendImage(phone, imageUrl, caption = '') {
-    if (this.status !== 'connected' || !this.sock) {
+    const isConnected = await this.waitForConnection(5000);
+    if (!isConnected || !this.sock) {
       throw new Error('WhatsApp Gateway belum terhubung. Silakan scan QR Code terlebih dahulu.');
     }
 
@@ -295,7 +324,8 @@ export class BaileysService {
   }
 
   async sendBulk(recipients, defaultDelayMs = config.bulk.defaultDelayMs) {
-    if (this.status !== 'connected' || !this.sock) {
+    const isConnected = await this.waitForConnection(5000);
+    if (!isConnected || !this.sock) {
       throw new Error('WhatsApp Gateway belum terhubung.');
     }
 
