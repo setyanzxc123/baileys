@@ -25,6 +25,67 @@ export class SessionService {
     }
   }
 
+  getLockFilePath() {
+    return path.join(this.sessionDir, 'gateway.pid');
+  }
+
+  isProcessAlive(pid) {
+    if (!pid || typeof pid !== 'number' || isNaN(pid)) return false;
+    try {
+      process.kill(pid, 0);
+      return true;
+    } catch (err) {
+      return err.code === 'EPERM';
+    }
+  }
+
+  acquireLock() {
+    this.ensureDirectory();
+    const lockPath = this.getLockFilePath();
+
+    if (fs.existsSync(lockPath)) {
+      try {
+        const rawContent = fs.readFileSync(lockPath, 'utf8').trim();
+        const existingPid = parseInt(rawContent, 10);
+
+        if (existingPid && existingPid !== process.pid) {
+          if (this.isProcessAlive(existingPid)) {
+            const errorMsg = `FATAL: Gateway sudah berjalan pada PID ${existingPid}. Hanya 1 instance yang diizinkan.`;
+            console.error(`[WA-GATEWAY] ${errorMsg}`);
+            throw new Error(errorMsg);
+          }
+          console.warn(`[WA-GATEWAY] Ditemukan stale lock dari PID ${existingPid} yang sudah mati. Membersihkan lock lama...`);
+        }
+      } catch (err) {
+        if (err.message && err.message.startsWith('FATAL:')) {
+          throw err;
+        }
+      }
+    }
+
+    try {
+      fs.writeFileSync(lockPath, String(process.pid), { flag: 'w' });
+    } catch (err) {
+      console.error('[WA-GATEWAY] Gagal menulis lockfile:', err.message);
+      throw err;
+    }
+  }
+
+  releaseLock() {
+    try {
+      const lockPath = this.getLockFilePath();
+      if (fs.existsSync(lockPath)) {
+        const rawContent = fs.readFileSync(lockPath, 'utf8').trim();
+        const existingPid = parseInt(rawContent, 10);
+        if (existingPid === process.pid) {
+          fs.unlinkSync(lockPath);
+        }
+      }
+    } catch {
+      // Ignore cleanup error during shutdown
+    }
+  }
+
   housekeep(maxAgeHours = 48) {
     if (!fs.existsSync(this.sessionDir)) return { cleanedCount: 0 };
 
@@ -36,7 +97,7 @@ export class SessionService {
       const files = fs.readdirSync(this.sessionDir);
 
       for (const file of files) {
-        if (file === 'creds.json' || file.startsWith('app-state-sync-key')) {
+        if (file === 'creds.json' || file === 'gateway.pid' || file.startsWith('app-state-sync-key')) {
           continue;
         }
 

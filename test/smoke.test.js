@@ -1,5 +1,8 @@
 import assert from 'node:assert';
+import fs from 'node:fs';
+import path from 'node:path';
 import 'dotenv/config';
+import { SessionService } from '../src/services/sessionService.js';
 
 const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3001';
 const API_KEY = process.env.API_KEY;
@@ -248,6 +251,32 @@ test('POST /restart — koneksi dimulai ulang tanpa hapus sesi', async () => {
     ['connecting', 'qr_ready', 'connected'].includes(data.data?.current_status),
     `current_status tak terduga: ${data.data?.current_status}`
   );
+});
+
+test('SessionService — acquireLock, duplicate guard, dan stale lock recovery', async () => {
+  const testDir = path.join(process.cwd(), 'sessions_test_lock');
+  const customSessionService = new SessionService(testDir);
+
+  try {
+    customSessionService.acquireLock();
+    const lockFile = customSessionService.getLockFilePath();
+    assert.ok(fs.existsSync(lockFile), 'lockfile harus dibuat');
+    assert.strictEqual(fs.readFileSync(lockFile, 'utf8').trim(), String(process.pid));
+
+    assert.strictEqual(customSessionService.isProcessAlive(process.pid), true);
+    assert.strictEqual(customSessionService.isProcessAlive(9999999), false);
+
+    fs.writeFileSync(lockFile, '9999999', 'utf8');
+    customSessionService.acquireLock();
+    assert.strictEqual(fs.readFileSync(lockFile, 'utf8').trim(), String(process.pid), 'stale lock harus ditimpa oleh PID aktif');
+
+    customSessionService.releaseLock();
+    assert.strictEqual(fs.existsSync(lockFile), false, 'lockfile harus terhapus setelah releaseLock');
+  } finally {
+    if (fs.existsSync(testDir)) {
+      fs.rmSync(testDir, { recursive: true, force: true });
+    }
+  }
 });
 
 const run = async () => {

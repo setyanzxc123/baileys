@@ -121,6 +121,7 @@ export class BaileysService {
           const statusCode = boomError?.output?.statusCode || lastDisconnect?.error?.output?.statusCode;
           const isLoggedOut = statusCode === DisconnectReason.loggedOut;
           const isRestartRequired = statusCode === DisconnectReason.restartRequired;
+          const isReplaced = statusCode === DisconnectReason.connectionReplaced || statusCode === 440;
 
           this.status = 'disconnected';
           this.user = null;
@@ -145,6 +146,9 @@ export class BaileysService {
             console.log('[WA-GATEWAY] Restart required oleh server WhatsApp (515). Reconnecting...');
             this.cancelReconnectTimer();
             this.reconnectTimer = setTimeout(() => this.init(), 500);
+          } else if (isReplaced) {
+            console.warn('[WA-GATEWAY] Koneksi digantikan oleh proses atau perangkat lain (conflict: replaced). Auto-reconnect dihentikan.');
+            this.cancelReconnectTimer();
           } else {
             this.cancelReconnectTimer();
             const delay = Math.min(3000 * Math.pow(1.5, this.reconnectAttempts), this.maxReconnectDelay);

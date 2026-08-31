@@ -12,6 +12,12 @@ if (!config.apiKey || config.apiKey.trim() === '') {
   process.exit(1);
 }
 
+try {
+  sessionService.acquireLock();
+} catch (err) {
+  process.exit(1);
+}
+
 const app = express();
 
 if (config.trustProxy) {
@@ -46,6 +52,16 @@ const server = app.listen(config.port, () => {
   housekeepingInterval.unref?.();
 });
 
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`[WA-GATEWAY] FATAL: Port ${config.port} sudah digunakan oleh proses lain.`);
+    sessionService.releaseLock();
+    process.exit(1);
+  } else {
+    console.error('[WA-GATEWAY] Server error:', err);
+  }
+});
+
 let shuttingDown = false;
 const handleShutdown = (signal) => {
   if (shuttingDown) return;
@@ -63,6 +79,7 @@ const handleShutdown = (signal) => {
   });
 
   waClient.shutdown();
+  sessionService.releaseLock();
 
   setTimeout(() => {
     console.log('[WA-GATEWAY] Proses berhenti.');
@@ -72,5 +89,6 @@ const handleShutdown = (signal) => {
 
 process.on('SIGINT', () => handleShutdown('SIGINT'));
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+process.on('exit', () => sessionService.releaseLock());
 
 export { app, server };
