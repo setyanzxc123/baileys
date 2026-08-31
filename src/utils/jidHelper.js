@@ -17,12 +17,20 @@ export function cleanPhoneNumber(phone) {
   return clean;
 }
 
+export function isGroupJid(jid) {
+  return typeof jid === 'string' && jid.trim().endsWith('@g.us');
+}
+
 export function normalizeJid(recipient) {
   if (!recipient) return null;
   const raw = String(recipient).trim();
 
   if (raw.endsWith('@g.us')) {
     return raw;
+  }
+
+  if (raw.endsWith('@s.whatsapp.net')) {
+    return jidNormalizedUser(raw);
   }
 
   const clean = cleanPhoneNumber(raw);

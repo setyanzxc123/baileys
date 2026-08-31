@@ -216,7 +216,7 @@ export class BaileysService {
 
     const jid = normalizeJid(phone);
     if (!jid) {
-      throw new Error(`Nomor telepon '${phone}' tidak valid untuk format WhatsApp Indonesia.`);
+      throw new Error(`Nomor telepon atau ID grup '${phone}' tidak valid.`);
     }
 
     if (!message || typeof message !== 'string' || message.trim() === '') {

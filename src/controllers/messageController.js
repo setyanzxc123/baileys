@@ -4,13 +4,14 @@ import { config } from '../config/app.js';
 import { OTP_PATTERN, DEFAULT_APP_NAME, DEFAULT_DOC_NAME, DEFAULT_DOC_MIMETYPE } from '../config/constants.js';
 
 export const sendMessage = async (req, res) => {
-  const { phone, message, text } = req.body || {};
+  const { phone, to, jid, recipient, message, text } = req.body || {};
+  const target = phone || to || jid || recipient;
   const content = message || text;
 
-  if (!phone) {
+  if (!target) {
     return res.status(422).json({
       status: 'error',
-      message: "Parameter 'phone' wajib diisi.",
+      message: "Parameter 'phone' (atau 'to', 'jid') wajib diisi.",
     });
   }
 
@@ -22,7 +23,7 @@ export const sendMessage = async (req, res) => {
   }
 
   try {
-    const result = await waClient.sendMessage(phone, content);
+    const result = await waClient.sendMessage(target, content);
     return res.json({
       status: 'success',
       message: 'Pesan berhasil dikirim via WhatsApp.',
@@ -81,14 +82,15 @@ export const sendOtp = async (req, res) => {
 };
 
 export const sendDocument = async (req, res) => {
-  const { phone, document_url, url, file_name, filename, caption, mimetype } = req.body || {};
+  const { phone, to, jid, recipient, document_url, url, file_name, filename, caption, mimetype } = req.body || {};
+  const target = phone || to || jid || recipient;
   const docUrl = document_url || url;
   const docName = file_name || filename || DEFAULT_DOC_NAME;
 
-  if (!phone) {
+  if (!target) {
     return res.status(422).json({
       status: 'error',
-      message: "Parameter 'phone' wajib diisi.",
+      message: "Parameter 'phone' (atau 'to', 'jid') wajib diisi.",
     });
   }
 
@@ -100,7 +102,7 @@ export const sendDocument = async (req, res) => {
   }
 
   try {
-    const result = await waClient.sendDocument(phone, docUrl, {
+    const result = await waClient.sendDocument(target, docUrl, {
       fileName: docName,
       caption: caption || '',
       mimetype: mimetype || DEFAULT_DOC_MIMETYPE,
@@ -122,13 +124,14 @@ export const sendDocument = async (req, res) => {
 };
 
 export const sendImage = async (req, res) => {
-  const { phone, image_url, url, caption } = req.body || {};
+  const { phone, to, jid, recipient, image_url, url, caption } = req.body || {};
+  const target = phone || to || jid || recipient;
   const imgUrl = image_url || url;
 
-  if (!phone) {
+  if (!target) {
     return res.status(422).json({
       status: 'error',
-      message: "Parameter 'phone' wajib diisi.",
+      message: "Parameter 'phone' (atau 'to', 'jid') wajib diisi.",
     });
   }
 
@@ -140,7 +143,7 @@ export const sendImage = async (req, res) => {
   }
 
   try {
-    const result = await waClient.sendImage(phone, imgUrl, caption || '');
+    const result = await waClient.sendImage(target, imgUrl, caption || '');
     return res.json({
       status: 'success',
       message: 'Gambar berhasil dikirim via WhatsApp.',
@@ -222,9 +225,10 @@ export const getJobStatus = (req, res) => {
 };
 
 export const checkNumber = async (req, res) => {
-  const { phone } = req.body || {};
+  const { phone, to, recipient } = req.body || {};
+  const target = phone || to || recipient;
 
-  if (!phone) {
+  if (!target) {
     return res.status(422).json({
       status: 'error',
       message: "Parameter 'phone' wajib diisi.",
@@ -232,7 +236,7 @@ export const checkNumber = async (req, res) => {
   }
 
   try {
-    const result = await waClient.checkNumber(phone);
+    const result = await waClient.checkNumber(target);
     return res.json({
       status: 'success',
       data: result,
