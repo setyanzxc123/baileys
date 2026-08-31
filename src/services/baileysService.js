@@ -240,7 +240,7 @@ export class BaileysService {
     }
   }
 
-  async sendDocument(phone, documentUrl, options = {}) {
+  async sendDocument(phone, source, options = {}) {
     const isConnected = await this.waitForConnection(5000);
     if (!isConnected || !this.sock) {
       throw new Error('WhatsApp Gateway belum terhubung. Silakan scan QR Code terlebih dahulu.');
@@ -248,11 +248,11 @@ export class BaileysService {
 
     const jid = normalizeJid(phone);
     if (!jid) {
-      throw new Error(`Nomor telepon '${phone}' tidak valid.`);
+      throw new Error(`Nomor telepon atau ID grup '${phone}' tidak valid.`);
     }
 
-    if (!documentUrl || typeof documentUrl !== 'string') {
-      throw new Error('Parameter document URL/path wajib disertakan.');
+    if (!source || (typeof source !== 'string' && !Buffer.isBuffer(source))) {
+      throw new Error('Parameter document URL atau buffer wajib disertakan.');
     }
 
     const fileName = options.fileName || options.filename || DEFAULT_DOC_NAME;
@@ -260,8 +260,9 @@ export class BaileysService {
     const caption = options.caption || '';
 
     try {
+      const documentPayload = Buffer.isBuffer(source) ? source : { url: source };
       const payload = {
-        document: { url: documentUrl },
+        document: documentPayload,
         mimetype,
         fileName,
       };
@@ -285,7 +286,7 @@ export class BaileysService {
     }
   }
 
-  async sendImage(phone, imageUrl, caption = '') {
+  async sendImage(phone, source, caption = '') {
     const isConnected = await this.waitForConnection(5000);
     if (!isConnected || !this.sock) {
       throw new Error('WhatsApp Gateway belum terhubung. Silakan scan QR Code terlebih dahulu.');
@@ -293,16 +294,17 @@ export class BaileysService {
 
     const jid = normalizeJid(phone);
     if (!jid) {
-      throw new Error(`Nomor telepon '${phone}' tidak valid.`);
+      throw new Error(`Nomor telepon atau ID grup '${phone}' tidak valid.`);
     }
 
-    if (!imageUrl || typeof imageUrl !== 'string') {
-      throw new Error('Parameter image URL/path wajib disertakan.');
+    if (!source || (typeof source !== 'string' && !Buffer.isBuffer(source))) {
+      throw new Error('Parameter image URL atau buffer wajib disertakan.');
     }
 
     try {
+      const imagePayload = Buffer.isBuffer(source) ? source : { url: source };
       const payload = {
-        image: { url: imageUrl },
+        image: imagePayload,
       };
 
       if (caption && typeof caption === 'string' && caption.trim() !== '') {

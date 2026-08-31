@@ -1,3 +1,5 @@
+import multer from 'multer';
+
 export const notFoundHandler = (req, res) => {
   return res.status(404).json({
     status: 'error',
@@ -7,6 +9,21 @@ export const notFoundHandler = (req, res) => {
 };
 
 export const errorHandler = (err, req, res, next) => {
+  if (err instanceof multer.MulterError) {
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(422).json({
+        status: 'error',
+        code: 'FILE_TOO_LARGE',
+        message: 'Ukuran file melebihi batas yang diizinkan.',
+      });
+    }
+    return res.status(422).json({
+      status: 'error',
+      code: 'UPLOAD_ERROR',
+      message: err.message || 'Gagal memproses berkas upload.',
+    });
+  }
+
   const isClientError = Number.isInteger(err.status) && err.status >= 400 && err.status < 500;
   const status = isClientError ? err.status : 500;
   const message = isClientError && err.expose && err.message

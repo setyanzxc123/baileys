@@ -95,8 +95,13 @@ test('POST /send-otp tanpa parameter otp — 422', async () => {
   assert.strictEqual(res.status, 422);
 });
 
-test('POST /send-document tanpa document_url — 422', async () => {
+test('POST /send-document tanpa file dan tanpa document_url — 422', async () => {
   const res = await jsonPost('/send-document', { phone: '08123456789' }, { 'x-api-key': API_KEY });
+  assert.strictEqual(res.status, 422);
+});
+
+test('POST /send-image tanpa file dan tanpa image_url — 422', async () => {
+  const res = await jsonPost('/send-image', { phone: '08123456789' }, { 'x-api-key': API_KEY });
   assert.strictEqual(res.status, 422);
 });
 
@@ -169,6 +174,27 @@ test('POST /send-bulk saat gateway offline — fast-fail 503 WA_GATEWAY_OFFLINE'
   const res = await jsonPost(
     '/send-bulk',
     { recipients: [{ phone: samplePhone(), message: 'tes' }] },
+    { 'x-api-key': API_KEY }
+  );
+  const data = await res.json();
+  assert.strictEqual(res.status, 503);
+  assert.strictEqual(data.code, 'WA_GATEWAY_OFFLINE');
+});
+
+test('POST /send-message ke grup WhatsApp (@g.us) saat gateway offline — fast-fail 503 WA_GATEWAY_OFFLINE', async () => {
+  const statusRes = await fetch(`${BASE_URL}/status`, { headers: { 'x-api-key': API_KEY } });
+  const status = await statusRes.json();
+
+  if (status.data?.connected) {
+    return {
+      skipped: true,
+      reason: 'gateway sedang online — fast-fail offline dilewati',
+    };
+  }
+
+  const res = await jsonPost(
+    '/send-message',
+    { to: '120363023456789012@g.us', message: 'tes grup' },
     { 'x-api-key': API_KEY }
   );
   const data = await res.json();

@@ -84,8 +84,11 @@ export const sendOtp = async (req, res) => {
 export const sendDocument = async (req, res) => {
   const { phone, to, jid, recipient, document_url, url, file_name, filename, caption, mimetype } = req.body || {};
   const target = phone || to || jid || recipient;
+  const docFile = req.file?.buffer;
   const docUrl = document_url || url;
-  const docName = file_name || filename || DEFAULT_DOC_NAME;
+  const docSource = docFile || docUrl;
+  const docName = file_name || filename || req.file?.originalname || DEFAULT_DOC_NAME;
+  const mime = mimetype || req.file?.mimetype || DEFAULT_DOC_MIMETYPE;
 
   if (!target) {
     return res.status(422).json({
@@ -94,18 +97,18 @@ export const sendDocument = async (req, res) => {
     });
   }
 
-  if (!docUrl) {
+  if (!docSource) {
     return res.status(422).json({
       status: 'error',
-      message: "Parameter 'document_url' (atau 'url') wajib diisi.",
+      message: "Parameter 'file' (upload) atau 'document_url' (atau 'url') wajib disertakan.",
     });
   }
 
   try {
-    const result = await waClient.sendDocument(target, docUrl, {
+    const result = await waClient.sendDocument(target, docSource, {
       fileName: docName,
       caption: caption || '',
-      mimetype: mimetype || DEFAULT_DOC_MIMETYPE,
+      mimetype: mime,
     });
 
     return res.json({
@@ -126,7 +129,9 @@ export const sendDocument = async (req, res) => {
 export const sendImage = async (req, res) => {
   const { phone, to, jid, recipient, image_url, url, caption } = req.body || {};
   const target = phone || to || jid || recipient;
+  const imgFile = req.file?.buffer;
   const imgUrl = image_url || url;
+  const imgSource = imgFile || imgUrl;
 
   if (!target) {
     return res.status(422).json({
@@ -135,15 +140,15 @@ export const sendImage = async (req, res) => {
     });
   }
 
-  if (!imgUrl) {
+  if (!imgSource) {
     return res.status(422).json({
       status: 'error',
-      message: "Parameter 'image_url' (atau 'url') wajib diisi.",
+      message: "Parameter 'file' (upload) atau 'image_url' (atau 'url') wajib disertakan.",
     });
   }
 
   try {
-    const result = await waClient.sendImage(target, imgUrl, caption || '');
+    const result = await waClient.sendImage(target, imgSource, caption || '');
     return res.json({
       status: 'success',
       message: 'Gambar berhasil dikirim via WhatsApp.',
