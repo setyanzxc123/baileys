@@ -3,6 +3,23 @@ import { queueService } from '../services/queueService.js';
 import { config } from '../config/app.js';
 import { OTP_PATTERN, DEFAULT_APP_NAME, DEFAULT_DOC_NAME, DEFAULT_DOC_MIMETYPE } from '../config/constants.js';
 
+const resolveSendError = (res, error, fallbackCode) => {
+  if (error?.statusCode === 429) {
+    const resHeaders = { 'Retry-After': String(Math.ceil((error.retryAfterMs || 1000) / 1000)) };
+    return res.status(429).set(resHeaders).json({
+      status: 'error',
+      code: error.code || 'WA_SENDER_LIMIT',
+      message: error.message,
+    });
+  }
+  const isOffline = !waClient.getStatus().connected;
+  return res.status(isOffline ? 503 : 500).json({
+    status: 'error',
+    message: error.message || 'Gagal mengirim pesan WhatsApp.',
+    code: isOffline ? 'WA_GATEWAY_OFFLINE' : fallbackCode,
+  });
+};
+
 export const sendMessage = async (req, res) => {
   const { phone, to, jid, recipient, message, text } = req.body || {};
   const target = phone || to || jid || recipient;
@@ -30,12 +47,7 @@ export const sendMessage = async (req, res) => {
       data: result,
     });
   } catch (error) {
-    const isOffline = !waClient.getStatus().connected;
-    return res.status(isOffline ? 503 : 500).json({
-      status: 'error',
-      message: error.message || 'Gagal mengirim pesan WhatsApp.',
-      code: isOffline ? 'WA_GATEWAY_OFFLINE' : 'SEND_FAILED',
-    });
+    return resolveSendError(res, error, 'SEND_FAILED');
   }
 };
 
@@ -72,12 +84,7 @@ export const sendOtp = async (req, res) => {
       },
     });
   } catch (error) {
-    const isOffline = !waClient.getStatus().connected;
-    return res.status(isOffline ? 503 : 500).json({
-      status: 'error',
-      message: error.message || 'Gagal mengirim kode OTP WhatsApp.',
-      code: isOffline ? 'WA_GATEWAY_OFFLINE' : 'SEND_FAILED',
-    });
+    return resolveSendError(res, error, 'SEND_FAILED');
   }
 };
 
@@ -117,12 +124,7 @@ export const sendDocument = async (req, res) => {
       data: result,
     });
   } catch (error) {
-    const isOffline = !waClient.getStatus().connected;
-    return res.status(isOffline ? 503 : 500).json({
-      status: 'error',
-      message: error.message || 'Gagal mengirim dokumen WhatsApp.',
-      code: isOffline ? 'WA_GATEWAY_OFFLINE' : 'SEND_DOCUMENT_FAILED',
-    });
+    return resolveSendError(res, error, 'SEND_DOCUMENT_FAILED');
   }
 };
 
@@ -155,12 +157,7 @@ export const sendImage = async (req, res) => {
       data: result,
     });
   } catch (error) {
-    const isOffline = !waClient.getStatus().connected;
-    return res.status(isOffline ? 503 : 500).json({
-      status: 'error',
-      message: error.message || 'Gagal mengirim gambar WhatsApp.',
-      code: isOffline ? 'WA_GATEWAY_OFFLINE' : 'SEND_IMAGE_FAILED',
-    });
+    return resolveSendError(res, error, 'SEND_IMAGE_FAILED');
   }
 };
 

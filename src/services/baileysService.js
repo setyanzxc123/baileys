@@ -18,6 +18,8 @@ import { sessionService } from './sessionService.js';
 import { logger } from '../utils/logger.js';
 import { cleanPhoneNumber, normalizeJid, isGroupJid } from '../utils/jidHelper.js';
 import { isTcTokenExpired, TC_TOKEN_INDEX_KEY } from '../utils/tcTokenHelper.js';
+import { createDeliveryGuard } from '../utils/deliveryGuard.js';
+import { createSenderRateLimiter } from '../utils/senderRateLimiter.js';
 
 export class BaileysService {
   constructor() {
@@ -35,6 +37,43 @@ export class BaileysService {
     this.reconnectTimer = null;
     this.isInitializing = false;
     this.tcTokenState = null;
+    this.deliveryGuard = createDeliveryGuard({ windowMs: config.circuitBreaker.hitWindowMs });
+    this.senderLimit = createSenderRateLimiter({
+      maxPerHour: config.senderLimits.maxPerHour,
+      maxPerDay: config.senderLimits.maxPerDay,
+    });
+  }
+
+  handle463Signal(source) {
+    if (!config.circuitBreaker.enabled) return;
+    const state = this.deliveryGuard.registerHit();
+    console.warn(
+      `[WA-GATEWAY] Sinyal 463 dari ${source}. Hit dalam jendela: ${state.hits}. Kirim dijeda sampai ${new Date(state.openUntil).toLocaleTimeString()} (breaker anti-restriction).`
+    );
+  }
+
+  assertSendAllowed() {
+    if (this.deliveryGuard.isOpen()) {
+      const retryAfterMs = this.deliveryGuard.retryAfterMs();
+      const error = new Error(
+        `Circuit breaker 463 aktif. Pengiriman dijeda ${Math.ceil(retryAfterMs / 1000)} detik untuk melindungi nomor dari restriction.`
+      );
+      error.code = 'WA_CIRCUIT_BREAKER_OPEN';
+      error.statusCode = 429;
+      error.retryAfterMs = retryAfterMs;
+      throw error;
+    }
+
+    const limit = this.senderLimit.tryConsume();
+    if (!limit.allowed) {
+      const error = new Error(
+        `Batas pengirim ${limit.tier === 'hour' ? 'per jam' : 'per hari'} tercapai. Coba lagi dalam ${Math.ceil(limit.retryAfterMs / 1000)} detik.`
+      );
+      error.code = 'WA_SENDER_LIMIT';
+      error.statusCode = 429;
+      error.retryAfterMs = limit.retryAfterMs;
+      throw error;
+    }
   }
 
   destroySocket(socket) {
@@ -83,6 +122,12 @@ export class BaileysService {
 
       this.sock = socket;
       this.sock.ev.on('creds.update', saveCreds);
+
+      socket.ws?.on?.('CB:ack,class:message', (node) => {
+        if (node?.attrs?.error === '463') {
+          this.handle463Signal(`ack ${node.attrs?.from || ''}`.trim());
+        }
+      });
 
       socket.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
@@ -159,6 +204,7 @@ export class BaileysService {
             this.cancelReconnectTimer();
           } else if (isTcTokenStreamError) {
             console.warn('[WA-GATEWAY] Stream error 463/tct dari server WhatsApp. Reconnect terkontrol tanpa restart sesi...');
+            this.handle463Signal('stream error');
             this.cancelReconnectTimer();
             this.reconnectTimer = setTimeout(() => this.init(), 2000);
           } else {
@@ -395,6 +441,7 @@ export class BaileysService {
   }
 
   async sendMessage(phone, message) {
+    this.assertSendAllowed();
     const isConnected = await this.waitForConnection(5000);
     if (!isConnected || !this.sock) {
       throw new Error('WhatsApp Gateway belum terhubung. Silakan scan QR Code terlebih dahulu.');
@@ -424,6 +471,7 @@ export class BaileysService {
   }
 
   async sendDocument(phone, source, options = {}) {
+    this.assertSendAllowed();
     const isConnected = await this.waitForConnection(5000);
     if (!isConnected || !this.sock) {
       throw new Error('WhatsApp Gateway belum terhubung. Silakan scan QR Code terlebih dahulu.');
@@ -467,6 +515,7 @@ export class BaileysService {
   }
 
   async sendImage(phone, source, caption = '') {
+    this.assertSendAllowed();
     const isConnected = await this.waitForConnection(5000);
     if (!isConnected || !this.sock) {
       throw new Error('WhatsApp Gateway belum terhubung. Silakan scan QR Code terlebih dahulu.');
@@ -604,6 +653,8 @@ export class BaileysService {
       user: this.user,
       qr_available: !!this.qrDataUrl,
       last_disconnect: this.lastDisconnect || null,
+      circuit_breaker: this.deliveryGuard.snapshot(),
+      sender_limit: this.senderLimit.snapshot(),
     };
   }
 }

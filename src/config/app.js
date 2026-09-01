@@ -28,4 +28,12 @@ export const config = {
     minDelayMs: parsePositiveInt(process.env.BULK_MIN_DELAY_MS, 1000),
     defaultDelayMs: parsePositiveInt(process.env.BULK_DEFAULT_DELAY_MS, 1500),
   },
+  senderLimits: {
+    maxPerHour: parsePositiveInt(process.env.SENDER_MAX_PER_HOUR, 30),
+    maxPerDay: parsePositiveInt(process.env.SENDER_MAX_PER_DAY, 200),
+  },
+  circuitBreaker: {
+    hitWindowMs: parsePositiveInt(process.env.BREAKER_463_WINDOW_MS, 900000),
+    enabled: process.env.BREAKER_463_ENABLED !== 'false',
+  },
 };

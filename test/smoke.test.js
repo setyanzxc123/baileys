@@ -4,6 +4,8 @@ import path from 'node:path';
 import 'dotenv/config';
 import { SessionService } from '../src/services/sessionService.js';
 import { isTcTokenExpired, TC_TOKEN_BUCKET_DURATION, TC_TOKEN_NUM_BUCKETS } from '../src/utils/tcTokenHelper.js';
+import { createDeliveryGuard } from '../src/utils/deliveryGuard.js';
+import { createSenderRateLimiter } from '../src/utils/senderRateLimiter.js';
 
 const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3001';
 const API_KEY = process.env.API_KEY;
@@ -297,6 +299,60 @@ test('isTcTokenExpired — nilai kosong atau tidak valid dianggap expired', () =
   assert.strictEqual(isTcTokenExpired(null), true);
   assert.strictEqual(isTcTokenExpired('abc'), true);
   assert.strictEqual(isTcTokenExpired(NaN), true);
+});
+
+test('deliveryGuard — breaker terbuka bertingkat sesuai jumlah hit dan pulih setelah window', () => {
+  const guard = createDeliveryGuard({ escalations: [60000, 300000] });
+  const t0 = 1000000;
+
+  assert.strictEqual(guard.isOpen(t0), false);
+
+  const first = guard.registerHit(t0);
+  assert.strictEqual(first.hits, 1);
+  assert.strictEqual(guard.isOpen(t0 + 59999), true);
+  assert.strictEqual(guard.isOpen(t0 + 60001), false, 'hit pertama harus buka 60 detik saja');
+
+  guard.registerHit(t0 + 61000);
+  assert.strictEqual(guard.isOpen(t0 + 61000 + 299999), true);
+  assert.strictEqual(guard.isOpen(t0 + 61000 + 300001), false, 'hit kedua harus eskalasi ke 5 menit');
+
+  const snap = guard.snapshot(t0 + 70000);
+  assert.strictEqual(snap.hits_in_window, 2);
+  assert.strictEqual(snap.open, true);
+  assert.ok(snap.retry_after_ms > 0);
+});
+
+test('senderRateLimiter — blokir saat limit jam penuh dan lepas saat window bergeser', () => {
+  const limiter = createSenderRateLimiter({ maxPerHour: 3, maxPerDay: 100 });
+  const t0 = 2000000;
+
+  assert.strictEqual(limiter.tryConsume(t0).allowed, true);
+  assert.strictEqual(limiter.tryConsume(t0 + 1).allowed, true);
+  assert.strictEqual(limiter.tryConsume(t0 + 2).allowed, true);
+
+  const blocked = limiter.tryConsume(t0 + 3);
+  assert.strictEqual(blocked.allowed, false, 'kirim ke-4 dalam jam yang sama harus diblokir');
+  assert.strictEqual(blocked.tier, 'hour');
+  assert.ok(blocked.retryAfterMs > 0);
+
+  assert.strictEqual(limiter.tryConsume(t0 + 3600002).allowed, true, 'setelah 1 jam harus boleh lagi');
+
+  const snap = limiter.snapshot(t0 + 3600002);
+  assert.strictEqual(snap.used_hour, 1);
+});
+
+test('senderRateLimiter — batas harian menahan pengiriman meski kuota jam masih ada', () => {
+  const limiter = createSenderRateLimiter({ maxPerHour: 100, maxPerDay: 3 });
+  const t0 = 3000000;
+
+  limiter.tryConsume(t0);
+  limiter.tryConsume(t0 + 1000);
+  limiter.tryConsume(t0 + 2000);
+
+  const blocked = limiter.tryConsume(t0 + 3000);
+  assert.strictEqual(blocked.allowed, false);
+  assert.strictEqual(blocked.tier, 'day');
+  assert.ok(blocked.retryAfterMs > 86000000 - 4000, 'retry harus menunggu window harian terluar');
 });
 
 const run = async () => {
