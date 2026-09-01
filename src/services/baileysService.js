@@ -12,7 +12,7 @@ import { config } from '../config/app.js';
 import { DEFAULT_APP_NAME, DEFAULT_DOC_NAME, DEFAULT_DOC_MIMETYPE } from '../config/constants.js';
 import { sessionService } from './sessionService.js';
 import { logger } from '../utils/logger.js';
-import { cleanPhoneNumber, normalizeJid } from '../utils/jidHelper.js';
+import { cleanPhoneNumber, normalizeJid, isGroupJid } from '../utils/jidHelper.js';
 
 export class BaileysService {
   constructor() {
@@ -247,20 +247,53 @@ export class BaileysService {
     }
   }
 
+  async prepareRecipient(target) {
+    let targetJid = normalizeJid(target);
+    if (!targetJid) {
+      throw new Error(`Nomor telepon atau ID grup '${target}' tidak valid.`);
+    }
+
+    if (isGroupJid(targetJid)) {
+      return targetJid;
+    }
+
+    try {
+      const clean = cleanPhoneNumber(target);
+      if (clean && this.sock?.onWhatsApp) {
+        const results = await this.sock.onWhatsApp(clean);
+        const match = Array.isArray(results) && results.length > 0 ? results[0] : null;
+        if (match?.exists && match?.jid) {
+          targetJid = match.jid;
+        }
+      }
+    } catch {
+      // Fallback ke targetJid awal jika query onWhatsApp gagal
+    }
+
+    try {
+      if (this.sock?.sendPresenceUpdate) {
+        await this.sock.sendPresenceUpdate('composing', targetJid);
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        await this.sock.sendPresenceUpdate('paused', targetJid);
+      }
+    } catch {
+      // Abaikan kegagalan presence update
+    }
+
+    return targetJid;
+  }
+
   async sendMessage(phone, message) {
     const isConnected = await this.waitForConnection(5000);
     if (!isConnected || !this.sock) {
       throw new Error('WhatsApp Gateway belum terhubung. Silakan scan QR Code terlebih dahulu.');
     }
 
-    const jid = normalizeJid(phone);
-    if (!jid) {
-      throw new Error(`Nomor telepon atau ID grup '${phone}' tidak valid.`);
-    }
-
     if (!message || typeof message !== 'string' || message.trim() === '') {
       throw new Error('Pesan teks tidak boleh kosong.');
     }
+
+    const jid = await this.prepareRecipient(phone);
 
     try {
       const response = await this.sock.sendMessage(jid, {
@@ -285,14 +318,11 @@ export class BaileysService {
       throw new Error('WhatsApp Gateway belum terhubung. Silakan scan QR Code terlebih dahulu.');
     }
 
-    const jid = normalizeJid(phone);
-    if (!jid) {
-      throw new Error(`Nomor telepon atau ID grup '${phone}' tidak valid.`);
-    }
-
     if (!source || (typeof source !== 'string' && !Buffer.isBuffer(source))) {
       throw new Error('Parameter document URL atau buffer wajib disertakan.');
     }
+
+    const jid = await this.prepareRecipient(phone);
 
     const fileName = options.fileName || options.filename || DEFAULT_DOC_NAME;
     const mimetype = options.mimetype || DEFAULT_DOC_MIMETYPE;
@@ -331,14 +361,11 @@ export class BaileysService {
       throw new Error('WhatsApp Gateway belum terhubung. Silakan scan QR Code terlebih dahulu.');
     }
 
-    const jid = normalizeJid(phone);
-    if (!jid) {
-      throw new Error(`Nomor telepon atau ID grup '${phone}' tidak valid.`);
-    }
-
     if (!source || (typeof source !== 'string' && !Buffer.isBuffer(source))) {
       throw new Error('Parameter image URL atau buffer wajib disertakan.');
     }
+
+    const jid = await this.prepareRecipient(phone);
 
     try {
       const imagePayload = Buffer.isBuffer(source) ? source : { url: source };

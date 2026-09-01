@@ -25,7 +25,7 @@ export function normalizeJid(recipient) {
   if (!recipient) return null;
   const raw = String(recipient).trim();
 
-  if (raw.endsWith('@g.us')) {
+  if (raw.endsWith('@g.us') || raw.endsWith('@lid')) {
     return raw;
   }
 
