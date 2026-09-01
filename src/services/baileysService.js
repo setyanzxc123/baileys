@@ -4,6 +4,10 @@ import makeWASocket, {
   Browsers,
   DisconnectReason,
   jidNormalizedUser,
+  getBinaryNodeChild,
+  getBinaryNodeChildren,
+  isPnUser,
+  isLidUser,
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import NodeCache from '@cacheable/node-cache';
@@ -13,6 +17,7 @@ import { DEFAULT_APP_NAME, DEFAULT_DOC_NAME, DEFAULT_DOC_MIMETYPE } from '../con
 import { sessionService } from './sessionService.js';
 import { logger } from '../utils/logger.js';
 import { cleanPhoneNumber, normalizeJid, isGroupJid } from '../utils/jidHelper.js';
+import { isTcTokenExpired, TC_TOKEN_INDEX_KEY } from '../utils/tcTokenHelper.js';
 
 export class BaileysService {
   constructor() {
@@ -29,6 +34,7 @@ export class BaileysService {
     this.lastDisconnect = null;
     this.reconnectTimer = null;
     this.isInitializing = false;
+    this.tcTokenState = null;
   }
 
   destroySocket(socket) {
@@ -122,6 +128,8 @@ export class BaileysService {
           const isLoggedOut = statusCode === DisconnectReason.loggedOut;
           const isRestartRequired = statusCode === DisconnectReason.restartRequired;
           const isReplaced = statusCode === DisconnectReason.connectionReplaced || statusCode === 440;
+          const reasonText = (lastDisconnect?.error?.message || '').toLowerCase();
+          const isTcTokenStreamError = statusCode === 463 || reasonText.includes('tct');
 
           this.status = 'disconnected';
           this.user = null;
@@ -149,6 +157,10 @@ export class BaileysService {
           } else if (isReplaced) {
             console.warn('[WA-GATEWAY] Koneksi digantikan oleh proses atau perangkat lain (conflict: replaced). Auto-reconnect dihentikan.');
             this.cancelReconnectTimer();
+          } else if (isTcTokenStreamError) {
+            console.warn('[WA-GATEWAY] Stream error 463/tct dari server WhatsApp. Reconnect terkontrol tanpa restart sesi...');
+            this.cancelReconnectTimer();
+            this.reconnectTimer = setTimeout(() => this.init(), 2000);
           } else {
             this.cancelReconnectTimer();
             const delay = Math.min(3000 * Math.pow(1.5, this.reconnectAttempts), this.maxReconnectDelay);
@@ -247,6 +259,103 @@ export class BaileysService {
     }
   }
 
+  async resolveTcStorageJid(sock, jid) {
+    if (isLidUser(jid)) return jid;
+    const getLIDForPN = sock.signalRepository?.lidMapping?.getLIDForPN?.bind(sock.signalRepository.lidMapping);
+    if (!getLIDForPN) return jid;
+    const lid = await getLIDForPN(jid);
+    return lid || jid;
+  }
+
+  async resolveTcIssueJid(sock, jid) {
+    const issueToLid = sock.serverProps?.lidTrustedTokenIssueToLid === true;
+    const lidMapping = sock.signalRepository?.lidMapping;
+    const getLIDForPN = lidMapping?.getLIDForPN?.bind(lidMapping);
+    const getPNForLID = lidMapping?.getPNForLID?.bind(lidMapping);
+
+    if (issueToLid) {
+      if (isLidUser(jid)) return jid;
+      if (!getLIDForPN) return jid;
+      return (await getLIDForPN(jid)) || jid;
+    }
+    if (!isLidUser(jid)) return jid;
+    if (!getPNForLID) return jid;
+    return (await getPNForLID(jid)) || jid;
+  }
+
+  async appendTcTokenIndex(keys, storageJid) {
+    try {
+      const indexData = await keys.get('tctoken', [TC_TOKEN_INDEX_KEY]);
+      const rawEntry = indexData?.[TC_TOKEN_INDEX_KEY];
+      let jids = [];
+      if (rawEntry?.token?.length) {
+        try {
+          jids = JSON.parse(Buffer.from(rawEntry.token).toString());
+        } catch {
+          jids = [];
+        }
+        if (!Array.isArray(jids)) jids = [];
+      }
+      if (!jids.includes(storageJid)) jids.push(storageJid);
+      await keys.set({
+        tctoken: {
+          [TC_TOKEN_INDEX_KEY]: { token: Buffer.from(JSON.stringify(jids)) },
+        },
+      });
+    } catch {
+      // Index maintenance is best effort; token entry already stored
+    }
+  }
+
+  async ensurePrivacyToken(jid) {
+    const sock = this.sock;
+    if (!sock?.authState?.keys || !sock?.issuePrivacyTokens) return 'unavailable';
+    if (!isPnUser(jid) && !isLidUser(jid)) return 'skipped';
+
+    try {
+      const keys = sock.authState.keys;
+      const storageJid = await this.resolveTcStorageJid(sock, jid);
+
+      const tokenData = await keys.get('tctoken', [storageJid]);
+      const entry = tokenData?.[storageJid];
+      if (entry?.token?.length && !isTcTokenExpired(entry.timestamp)) {
+        return 'fresh';
+      }
+
+      const issueJid = await this.resolveTcIssueJid(sock, jid);
+      const issuedAt = Math.floor(Date.now() / 1000);
+      const result = await sock.issuePrivacyTokens([issueJid], issuedAt);
+
+      const tokensNode = getBinaryNodeChild(result, 'tokens');
+      const tokenNodes = tokensNode ? getBinaryNodeChildren(tokensNode, 'token') : [];
+      const issued = tokenNodes.find(
+        (n) => n.attrs?.type === 'trusted_contact' && n.content instanceof Uint8Array
+      );
+
+      if (!issued) {
+        return 'declined';
+      }
+
+      await keys.set({
+        tctoken: {
+          [storageJid]: {
+            ...entry,
+            token: Buffer.from(issued.content),
+            timestamp: String(issued.attrs?.t || issuedAt),
+            senderTimestamp: issuedAt,
+          },
+        },
+      });
+      await this.appendTcTokenIndex(keys, storageJid);
+
+      console.log(`[WA-GATEWAY] Privacy token (tctoken) diterbitkan untuk ${storageJid}`);
+      return 'issued';
+    } catch (error) {
+      console.warn(`[WA-GATEWAY] Pre-issue privacy token gagal untuk ${jid}: ${error.message}`);
+      return 'failed';
+    }
+  }
+
   async prepareRecipient(target) {
     let targetJid = normalizeJid(target);
     if (!targetJid) {
@@ -279,6 +388,8 @@ export class BaileysService {
     } catch {
       // Abaikan kegagalan presence update
     }
+
+    this.tcTokenState = await this.ensurePrivacyToken(targetJid);
 
     return targetJid;
   }

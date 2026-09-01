@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import 'dotenv/config';
 import { SessionService } from '../src/services/sessionService.js';
+import { isTcTokenExpired, TC_TOKEN_BUCKET_DURATION, TC_TOKEN_NUM_BUCKETS } from '../src/utils/tcTokenHelper.js';
 
 const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3001';
 const API_KEY = process.env.API_KEY;
@@ -277,6 +278,25 @@ test('SessionService — acquireLock, duplicate guard, dan stale lock recovery',
       fs.rmSync(testDir, { recursive: true, force: true });
     }
   }
+});
+
+test('isTcTokenExpired — token valid dalam jendela bucket tidak dianggap expired', () => {
+  const nowSec = Math.floor(Date.now() / 1000);
+  const currentBucketStart = Math.floor(nowSec / TC_TOKEN_BUCKET_DURATION) * TC_TOKEN_BUCKET_DURATION;
+  const cutoff = (Math.floor(nowSec / TC_TOKEN_BUCKET_DURATION) - (TC_TOKEN_NUM_BUCKETS - 1)) * TC_TOKEN_BUCKET_DURATION;
+
+  assert.strictEqual(isTcTokenExpired(nowSec), false, 'timestamp sekarang harus valid');
+  assert.strictEqual(isTcTokenExpired(String(currentBucketStart)), false, 'timestamp string awal bucket harus valid');
+  assert.strictEqual(isTcTokenExpired(cutoff), false, 'tepat di cutoff masih valid (>= cutoff)');
+  assert.strictEqual(isTcTokenExpired(cutoff - 1), true, 'di bawah cutoff harus expired');
+  assert.strictEqual(isTcTokenExpired(nowSec - TC_TOKEN_BUCKET_DURATION * TC_TOKEN_NUM_BUCKETS), true, 'lebih lama dari jendela harus expired');
+});
+
+test('isTcTokenExpired — nilai kosong atau tidak valid dianggap expired', () => {
+  assert.strictEqual(isTcTokenExpired(undefined), true);
+  assert.strictEqual(isTcTokenExpired(null), true);
+  assert.strictEqual(isTcTokenExpired('abc'), true);
+  assert.strictEqual(isTcTokenExpired(NaN), true);
 });
 
 const run = async () => {
