@@ -22,6 +22,12 @@ const jsonPost = (path, body, headers = {}) =>
 
 const samplePhone = () => `08123${Math.floor(100000 + Math.random() * 900000)}`;
 
+const gatewayConnected = async () => {
+  const res = await fetch(`${BASE_URL}/status`, { headers: { 'x-api-key': API_KEY } });
+  const data = await res.json();
+  return data.data?.connected === true;
+};
+
 test('GET / — service discovery mengembalikan katalog endpoint', async () => {
   const res = await fetch(`${BASE_URL}/`);
   const data = await res.json();
@@ -209,6 +215,13 @@ test('POST /send-message ke grup WhatsApp (@g.us) saat gateway offline — fast-
 });
 
 test('POST /send-otp cooldown — OTP kedua ke nomor sama ditolak 429 OTP_COOLDOWN', async () => {
+  if (await gatewayConnected()) {
+    return {
+      skipped: true,
+      reason: 'gateway online — request pertama test ini menembus jalur kirim real, dilewati untuk melindungi nomor',
+    };
+  }
+
   const body = { phone: samplePhone(), otp: '555111' };
   const headers = { 'x-api-key': API_KEY };
 
@@ -232,6 +245,13 @@ test('POST /send-otp format OTP tidak valid — 422 OTP_INVALID_FORMAT', async (
 });
 
 test('POST /send-otp payload invalid tidak membakar cooldown nomor', async () => {
+  if (await gatewayConnected()) {
+    return {
+      skipped: true,
+      reason: 'gateway online — request valid test ini menembus jalur kirim real, dilewati untuk melindungi nomor',
+    };
+  }
+
   const phone = samplePhone();
   const headers = { 'x-api-key': API_KEY };
 
@@ -243,6 +263,20 @@ test('POST /send-otp payload invalid tidak membakar cooldown nomor', async () =>
     [200, 500, 503].includes(resNext.status),
     `OTP valid setelah payload invalid tidak boleh kena 429, didapat ${resNext.status}`
   );
+});
+
+test('POST /send-message ke nomor tidak terdaftar — 422 WA_NUMBER_NOT_REGISTERED', async () => {
+  if (!(await gatewayConnected())) {
+    return {
+      skipped: true,
+      reason: 'gateway offline — verifikasi nomor tidak terdaftar memerlukan koneksi aktif',
+    };
+  }
+
+  const res = await jsonPost('/send-message', { phone: '620000000000', message: 'tes' }, { 'x-api-key': API_KEY });
+  const data = await res.json();
+  assert.strictEqual(res.status, 422);
+  assert.strictEqual(data.code, 'WA_NUMBER_NOT_REGISTERED');
 });
 
 test('POST /restart — koneksi dimulai ulang tanpa hapus sesi', async () => {

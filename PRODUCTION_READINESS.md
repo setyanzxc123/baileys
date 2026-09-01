@@ -17,6 +17,7 @@ Proyek layak production untuk skala notification/OTP internal (puluhan sampai ra
 | F-05 | P3 | uncaughtException hanya di-log, proses tetap hidup dalam state tidak pasti | src/server.js:94 |
 | F-06 | P3 | Dead code: BaileysService.sendBulk sudah digantikan queue service | src/services/baileysService.js:554 |
 | F-07 | P3 | Logging campur console dan pino, tidak terstruktur | beberapa file |
+| F-08 | P1 | Smoke test menembus jalur kirim real saat gateway online; kirim ke nomor tak terdaftar tidak dibatalkan | test/smoke.test.js, src/services/baileysService.js |
 
 ## Bukti Verifikasi
 
@@ -80,6 +81,23 @@ Sebagian modul memakai console.log/warn/error dan sebagian memakai pino. Tidak a
 
 Rekomendasi: konsolidasikan ke pino, tambahkan rotasi via pm2-logrotate bila butuh retensi.
 
+### F-08 (P1, teratasi 2026-09-02) Smoke test menembus jalur kirim real dan nomor tak terdaftar tidak dibatalkan
+
+Insiden 2026-09-01: menjalankan npm test saat gateway online memicu 2 request kirim nyata ber-template OTP ke nomor acak (prefix 08123 + 6 digit acak). Akar masalahnya dua lapis:
+
+1. Test cooldown dan test payload-invalid menjalankan request /send-otp valid ke samplePhone acak tanpa memperhatikan status koneksi. Saat gateway online, request pertama tiap test adalah percobaan kirim sungguhan ke nomor yang tidak pernah berinteraksi dengan akun.
+2. prepareRecipient tetap melanjutkan pengiriman meski query onWhatsApp melaporkan nomor tidak terdaftar (exists false), sehingga stanza pesan tetap ditulis ke nomor yang kemungkinan tidak ada.
+
+Akibatnya akun gateway terkena restriction (disconnect 403 Connection Failure) sekitar satu jam setelah test. Pengiriman template OTP ke nomor asing dan ke nomor tidak terdaftar adalah sinyal spam kuat bagi anti-abuse WhatsApp.
+
+Perbaikan yang terpasang:
+- Kedua test kini di-skip saat gateway online, mengikuti pola test fast-fail offline yang sudah ada.
+- prepareRecipient membatalkan pengiriman dengan error WA_NUMBER_NOT_REGISTERED (HTTP 422) saat onWhatsApp melaporkan nomor tidak terdaftar; query gagal karena gangguan jaringan tetap fallback agar kirim tidak terblokir saat query outage.
+- messageController memetakan error ber-statusCode 422 dari service.
+- Test baru menambahkan verifikasi nomor tidak terdaftar saat gateway online.
+
+Sisa risiko: false negative onWhatsApp dapat menghasilkan 422 palsu untuk nomor yang sebenarnya terdaftar; risiko ini diterima demi proteksi akun. F-01 (kuota terbakar percobaan gagal) masih terbuka dan berkaitan erat dengan proteksi akun.
+
 ## Risiko Permanen di Luar Kode
 
 Baileys adalah library unofficial. Semua guard mengurangi tetapi tidak menghilangkan risiko pemblokiran nomor oleh WhatsApp. Langkah mitigasi operasional:
@@ -92,8 +110,9 @@ Kuota default 30 per jam dan 200 per hari sengaja konservatif untuk warm-up. Set
 
 ## Urutan Eksekusi
 
-1. P1 F-01: reposisi konsumsi kuota pengirim, tambah unit test.
-2. P1 F-02: keputusan infrastruktur (reverse proxy TLS atau bind localhost), terapkan, verifikasi dari mesin konsumen.
-3. P2 F-04: cache onWhatsApp.
-4. P2 F-03: evict job selesai, dokumentasi batasan bulk.
-5. P3 F-05, F-06, F-07: kebersihan kode.
+1. P1 F-08: teratasi 2026-09-02 (guard test, abort nomor tak terdaftar, test baru). Sebelum live traffic, restart proses gateway agar perbaikan aktif.
+2. P1 F-01: reposisi konsumsi kuota pengirim, tambah unit test.
+3. P1 F-02: keputusan infrastruktur (reverse proxy TLS atau bind localhost), terapkan, verifikasi dari mesin konsumen.
+4. P2 F-04: cache onWhatsApp.
+5. P2 F-03: evict job selesai, dokumentasi batasan bulk.
+6. P3 F-05, F-06, F-07: kebersihan kode.

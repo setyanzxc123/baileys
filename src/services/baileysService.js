@@ -419,9 +419,15 @@ export class BaileysService {
         const match = Array.isArray(results) && results.length > 0 ? results[0] : null;
         if (match?.exists && match?.jid) {
           targetJid = match.jid;
+        } else {
+          const error = new Error(`Nomor '${clean}' tidak terdaftar di WhatsApp. Pengiriman dihentikan untuk melindungi reputasi akun pengirim.`);
+          error.code = 'WA_NUMBER_NOT_REGISTERED';
+          error.statusCode = 422;
+          throw error;
         }
       }
-    } catch {
+    } catch (error) {
+      if (error?.code === 'WA_NUMBER_NOT_REGISTERED') throw error;
       // Fallback ke targetJid awal jika query onWhatsApp gagal
     }
 

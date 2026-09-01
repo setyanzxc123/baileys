@@ -12,6 +12,13 @@ const resolveSendError = (res, error, fallbackCode) => {
       message: error.message,
     });
   }
+  if (error?.statusCode === 422) {
+    return res.status(422).json({
+      status: 'error',
+      code: error.code || fallbackCode,
+      message: error.message,
+    });
+  }
   const isOffline = !waClient.getStatus().connected;
   return res.status(isOffline ? 503 : 500).json({
     status: 'error',
