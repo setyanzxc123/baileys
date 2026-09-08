@@ -19,6 +19,28 @@ const resolveSendError = (res, error, fallbackCode) => {
       message: error.message,
     });
   }
+  if (error?.statusCode === 502) {
+    return res.status(502).json({
+      status: 'error',
+      code: error.code || 'WA_SERVER_REJECTED',
+      message: error.message,
+      server_error_code: error.serverErrorCode || null,
+    });
+  }
+  if (error?.statusCode === 504) {
+    return res.status(504).json({
+      status: 'error',
+      code: error.code || 'WA_SERVER_ACK_TIMEOUT',
+      message: error.message,
+    });
+  }
+  if (error?.statusCode === 503) {
+    return res.status(503).json({
+      status: 'error',
+      code: error.code || 'WA_GATEWAY_OFFLINE',
+      message: error.message,
+    });
+  }
   const isOffline = !waClient.getStatus().connected;
   return res.status(isOffline ? 503 : 500).json({
     status: 'error',
@@ -28,7 +50,7 @@ const resolveSendError = (res, error, fallbackCode) => {
 };
 
 export const sendMessage = async (req, res) => {
-  const { phone, to, jid, recipient, message, text } = req.body || {};
+  const { phone, to, jid, recipient, message, text, wait_for_ack, ack_timeout_ms } = req.body || {};
   const target = phone || to || jid || recipient;
   const content = message || text;
 
@@ -47,7 +69,10 @@ export const sendMessage = async (req, res) => {
   }
 
   try {
-    const result = await waClient.sendMessage(target, content);
+    const result = await waClient.sendMessage(target, content, {
+      waitForAck: wait_for_ack,
+      ackTimeoutMs: ack_timeout_ms,
+    });
     return res.json({
       status: 'success',
       message: 'Pesan berhasil dikirim via WhatsApp.',
@@ -59,7 +84,7 @@ export const sendMessage = async (req, res) => {
 };
 
 export const sendOtp = async (req, res) => {
-  const { phone, otp, app_name, template } = req.body || {};
+  const { phone, otp, app_name, template, wait_for_ack, ack_timeout_ms } = req.body || {};
 
   if (!phone || !otp) {
     return res.status(422).json({
@@ -81,7 +106,10 @@ export const sendOtp = async (req, res) => {
   const textMessage = template ? template.replace('{{otp}}', String(otp)).replace('{{app_name}}', appTitle) : defaultText;
 
   try {
-    const result = await waClient.sendMessage(phone, textMessage);
+    const result = await waClient.sendMessage(phone, textMessage, {
+      waitForAck: wait_for_ack,
+      ackTimeoutMs: ack_timeout_ms,
+    });
     return res.json({
       status: 'success',
       message: 'Kode OTP berhasil dikirim via WhatsApp.',
@@ -96,7 +124,7 @@ export const sendOtp = async (req, res) => {
 };
 
 export const sendDocument = async (req, res) => {
-  const { phone, to, jid, recipient, document_url, url, file_name, filename, caption, mimetype } = req.body || {};
+  const { phone, to, jid, recipient, document_url, url, file_name, filename, caption, mimetype, wait_for_ack, ack_timeout_ms } = req.body || {};
   const target = phone || to || jid || recipient;
   const docFile = req.file?.buffer;
   const docUrl = document_url || url;
@@ -123,6 +151,8 @@ export const sendDocument = async (req, res) => {
       fileName: docName,
       caption: caption || '',
       mimetype: mime,
+      waitForAck: wait_for_ack,
+      ackTimeoutMs: ack_timeout_ms,
     });
 
     return res.json({
@@ -136,7 +166,7 @@ export const sendDocument = async (req, res) => {
 };
 
 export const sendImage = async (req, res) => {
-  const { phone, to, jid, recipient, image_url, url, caption } = req.body || {};
+  const { phone, to, jid, recipient, image_url, url, caption, wait_for_ack, ack_timeout_ms } = req.body || {};
   const target = phone || to || jid || recipient;
   const imgFile = req.file?.buffer;
   const imgUrl = image_url || url;
@@ -157,7 +187,10 @@ export const sendImage = async (req, res) => {
   }
 
   try {
-    const result = await waClient.sendImage(target, imgSource, caption || '');
+    const result = await waClient.sendImage(target, imgSource, caption || '', {
+      waitForAck: wait_for_ack,
+      ackTimeoutMs: ack_timeout_ms,
+    });
     return res.json({
       status: 'success',
       message: 'Gambar berhasil dikirim via WhatsApp.',

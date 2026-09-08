@@ -36,4 +36,8 @@ export const config = {
     hitWindowMs: parsePositiveInt(process.env.BREAKER_463_WINDOW_MS, 900000),
     enabled: process.env.BREAKER_463_ENABLED !== 'false',
   },
+  serverAck: {
+    enabled: process.env.SERVER_ACK_ENABLED !== 'false',
+    timeoutMs: parsePositiveInt(process.env.SERVER_ACK_TIMEOUT_MS, 3000),
+  },
 };

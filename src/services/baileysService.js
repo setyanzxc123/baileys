@@ -8,6 +8,7 @@ import makeWASocket, {
   getBinaryNodeChildren,
   isPnUser,
   isLidUser,
+  generateMessageIDV2,
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import NodeCache from '@cacheable/node-cache';
@@ -42,6 +43,7 @@ export class BaileysService {
       maxPerHour: config.senderLimits.maxPerHour,
       maxPerDay: config.senderLimits.maxPerDay,
     });
+    this.pendingAcks = new Map();
   }
 
   handle463Signal(source) {
@@ -78,11 +80,87 @@ export class BaileysService {
 
   destroySocket(socket) {
     if (!socket) return;
+    this.clearPendingAcks();
     try {
       socket.ev?.removeAllListeners?.();
       socket.end?.(undefined);
     } catch {
       // Ignore errors when closing an already closed socket
+    }
+  }
+
+  waitForServerAck(messageId, timeoutMs = config.serverAck.timeoutMs) {
+    return new Promise((resolve, reject) => {
+      const startTime = Date.now();
+      const timer = setTimeout(() => {
+        this.pendingAcks.delete(messageId);
+        const error = new Error(
+          `Batas waktu menunggu konfirmasi server WhatsApp (Server ACK) terlampaui (${timeoutMs}ms).`
+        );
+        error.code = 'WA_SERVER_ACK_TIMEOUT';
+        error.statusCode = 504;
+        error.messageId = messageId;
+        reject(error);
+      }, timeoutMs);
+
+      this.pendingAcks.set(messageId, {
+        resolve,
+        reject,
+        timer,
+        startTime,
+      });
+    });
+  }
+
+  cancelPendingAck(messageId) {
+    if (messageId && this.pendingAcks.has(messageId)) {
+      const pending = this.pendingAcks.get(messageId);
+      clearTimeout(pending.timer);
+      this.pendingAcks.delete(messageId);
+    }
+  }
+
+  clearPendingAcks(reason = 'Koneksi WhatsApp terputus sebelum konfirmasi server diterima.') {
+    for (const [id, pending] of this.pendingAcks.entries()) {
+      clearTimeout(pending.timer);
+      const error = new Error(reason);
+      error.code = 'WA_SOCKET_CLOSED';
+      error.statusCode = 503;
+      error.messageId = id;
+      pending.reject(error);
+    }
+    this.pendingAcks.clear();
+  }
+
+  handleMessageAck(node) {
+    const ackId = node?.attrs?.id;
+    const errCode = node?.attrs?.error;
+
+    if (errCode === '463') {
+      this.handle463Signal(`ack ${node.attrs?.from || ''}`.trim());
+    }
+
+    if (ackId && this.pendingAcks.has(ackId)) {
+      const pending = this.pendingAcks.get(ackId);
+      this.pendingAcks.delete(ackId);
+      clearTimeout(pending.timer);
+
+      if (errCode) {
+        const error = new Error(
+          `Pesan ditolak oleh server WhatsApp dengan kode error ${errCode}.`
+        );
+        error.code = 'WA_SERVER_REJECTED';
+        error.statusCode = 502;
+        error.serverErrorCode = errCode;
+        error.messageId = ackId;
+        pending.reject(error);
+      } else {
+        pending.resolve({
+          messageId: ackId,
+          serverAck: true,
+          ackElapsedMs: Date.now() - pending.startTime,
+        });
+      }
     }
   }
 
@@ -124,9 +202,7 @@ export class BaileysService {
       this.sock.ev.on('creds.update', saveCreds);
 
       socket.ws?.on?.('CB:ack,class:message', (node) => {
-        if (node?.attrs?.error === '463') {
-          this.handle463Signal(`ack ${node.attrs?.from || ''}`.trim());
-        }
+        this.handleMessageAck(node);
       });
 
       socket.ev.on('connection.update', async (update) => {
@@ -446,7 +522,7 @@ export class BaileysService {
     return targetJid;
   }
 
-  async sendMessage(phone, message) {
+  async sendMessage(phone, message, options = {}) {
     this.assertSendAllowed();
     const isConnected = await this.waitForConnection(5000);
     if (!isConnected || !this.sock) {
@@ -458,19 +534,37 @@ export class BaileysService {
     }
 
     const jid = await this.prepareRecipient(phone);
+    const waitForAck = options.waitForAck !== undefined ? Boolean(options.waitForAck) : config.serverAck.enabled;
+    const timeoutMs = options.ackTimeoutMs ? Number(options.ackTimeoutMs) : config.serverAck.timeoutMs;
+    const messageId = options.messageId || generateMessageIDV2(this.sock.user?.id);
+
+    let ackPromise = null;
+    if (waitForAck) {
+      ackPromise = this.waitForServerAck(messageId, timeoutMs);
+    }
 
     try {
-      const response = await this.sock.sendMessage(jid, {
-        text: message.trim(),
-      });
+      const response = await this.sock.sendMessage(
+        jid,
+        { text: message.trim() },
+        { ...options, messageId }
+      );
+
+      let ackResult = null;
+      if (ackPromise) {
+        ackResult = await ackPromise;
+      }
 
       return {
         success: true,
-        messageId: response?.key?.id || null,
+        messageId: response?.key?.id || messageId,
         phone: jid.split('@')[0],
         timestamp: response?.messageTimestamp || Math.floor(Date.now() / 1000),
+        server_ack: ackResult ? true : undefined,
+        ack_elapsed_ms: ackResult?.ackElapsedMs,
       };
     } catch (error) {
+      this.cancelPendingAck(messageId);
       console.error(`[WA-GATEWAY] Gagal kirim pesan ke ${phone}:`, error.message);
       throw error;
     }
@@ -492,6 +586,14 @@ export class BaileysService {
     const fileName = options.fileName || options.filename || DEFAULT_DOC_NAME;
     const mimetype = options.mimetype || DEFAULT_DOC_MIMETYPE;
     const caption = options.caption || '';
+    const waitForAck = options.waitForAck !== undefined ? Boolean(options.waitForAck) : config.serverAck.enabled;
+    const timeoutMs = options.ackTimeoutMs ? Number(options.ackTimeoutMs) : config.serverAck.timeoutMs;
+    const messageId = options.messageId || generateMessageIDV2(this.sock.user?.id);
+
+    let ackPromise = null;
+    if (waitForAck) {
+      ackPromise = this.waitForServerAck(messageId, timeoutMs);
+    }
 
     try {
       const documentPayload = Buffer.isBuffer(source) ? source : { url: source };
@@ -505,22 +607,30 @@ export class BaileysService {
         payload.caption = caption.trim();
       }
 
-      const response = await this.sock.sendMessage(jid, payload);
+      const response = await this.sock.sendMessage(jid, payload, { ...options, messageId });
+
+      let ackResult = null;
+      if (ackPromise) {
+        ackResult = await ackPromise;
+      }
 
       return {
         success: true,
-        messageId: response?.key?.id || null,
+        messageId: response?.key?.id || messageId,
         phone: jid.split('@')[0],
         fileName,
         timestamp: response?.messageTimestamp || Math.floor(Date.now() / 1000),
+        server_ack: ackResult ? true : undefined,
+        ack_elapsed_ms: ackResult?.ackElapsedMs,
       };
     } catch (error) {
+      this.cancelPendingAck(messageId);
       console.error(`[WA-GATEWAY] Gagal kirim dokumen ke ${phone}:`, error.message);
       throw error;
     }
   }
 
-  async sendImage(phone, source, caption = '') {
+  async sendImage(phone, source, caption = '', options = {}) {
     this.assertSendAllowed();
     const isConnected = await this.waitForConnection(5000);
     if (!isConnected || !this.sock) {
@@ -532,6 +642,14 @@ export class BaileysService {
     }
 
     const jid = await this.prepareRecipient(phone);
+    const waitForAck = options.waitForAck !== undefined ? Boolean(options.waitForAck) : config.serverAck.enabled;
+    const timeoutMs = options.ackTimeoutMs ? Number(options.ackTimeoutMs) : config.serverAck.timeoutMs;
+    const messageId = options.messageId || generateMessageIDV2(this.sock.user?.id);
+
+    let ackPromise = null;
+    if (waitForAck) {
+      ackPromise = this.waitForServerAck(messageId, timeoutMs);
+    }
 
     try {
       const imagePayload = Buffer.isBuffer(source) ? source : { url: source };
@@ -543,15 +661,23 @@ export class BaileysService {
         payload.caption = caption.trim();
       }
 
-      const response = await this.sock.sendMessage(jid, payload);
+      const response = await this.sock.sendMessage(jid, payload, { ...options, messageId });
+
+      let ackResult = null;
+      if (ackPromise) {
+        ackResult = await ackPromise;
+      }
 
       return {
         success: true,
-        messageId: response?.key?.id || null,
+        messageId: response?.key?.id || messageId,
         phone: jid.split('@')[0],
         timestamp: response?.messageTimestamp || Math.floor(Date.now() / 1000),
+        server_ack: ackResult ? true : undefined,
+        ack_elapsed_ms: ackResult?.ackElapsedMs,
       };
     } catch (error) {
+      this.cancelPendingAck(messageId);
       console.error(`[WA-GATEWAY] Gagal kirim gambar ke ${phone}:`, error.message);
       throw error;
     }
@@ -661,6 +787,11 @@ export class BaileysService {
       last_disconnect: this.lastDisconnect || null,
       circuit_breaker: this.deliveryGuard.snapshot(),
       sender_limit: this.senderLimit.snapshot(),
+      server_ack: {
+        enabled: config.serverAck.enabled,
+        timeout_ms: config.serverAck.timeoutMs,
+        pending_acks: this.pendingAcks.size,
+      },
     };
   }
 }

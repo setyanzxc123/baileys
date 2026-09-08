@@ -108,6 +108,8 @@ Semua endpoint pengiriman pesan dan operasi perangkat dilindungi menggunakan **A
 | **429** | `RATE_LIMITED` | Batas request per menit terlampaui. Header `Retry-After` berisi detik tunggu. |
 | **429** | `OTP_COOLDOWN` | OTP ke nomor tujuan baru saja dikirim. Silakan tunggu jeda cooldown (default 60 detik). |
 | **429** | `OTP_HOURLY_LIMIT` | Batas maksimum pengiriman OTP per nomor per jam telah tercapai (default 5). |
+| **502** | `WA_SERVER_REJECTED` | Server WhatsApp menolak pengiriman pesan (misal penolakan server 463/479). Pemicu fallback provider seketika. |
+| **504** | `WA_SERVER_ACK_TIMEOUT` | Batas waktu menunggu konfirmasi penerimaan server WhatsApp (Server ACK / centang 1) terlampaui. Pemicu fallback provider seketika. |
 | **503** | `WA_GATEWAY_OFFLINE` | Socket WhatsApp belum terhubung / sesi logout. |
 | **500** | `SEND_FAILED` | Kesalahan internal saat mengirimkan pesan ke jaringan WhatsApp. |
 
@@ -263,10 +265,12 @@ Menutup socket lama dan menyambungkan kembali tanpa menghapus sesi login di disk
   "phone": "08123456789",
   "otp": "748192",
   "app_name": "Portal Pelayanan",
-  "template": "Kode verifikasi Anda untuk {{app_name}} adalah *{{otp}}*. Berlaku 5 menit."
+  "template": "Kode verifikasi Anda untuk {{app_name}} adalah *{{otp}}*. Berlaku 5 menit.",
+  "wait_for_ack": true,
+  "ack_timeout_ms": 3000
 }
 ```
-*Catatan:* Parameter `app_name` dan `template` bersifat opsional. Jika `template` tidak diisi, gateway menggunakan format baku instansi.
+*Catatan:* Parameter `app_name`, `template`, `wait_for_ack`, dan `ack_timeout_ms` bersifat opsional. Secara default, `wait_for_ack` bernilai `true` (menahan respons hingga konfirmasi Server ACK / Centang 1 diterima dalam 150-500ms).
 * **Contoh Respons (200 OK):**
 ```json
 {
@@ -276,7 +280,9 @@ Menutup socket lama dan menyambungkan kembali tanpa menghapus sesi login di disk
     "messageId": "BAE5F61829...",
     "phone": "628123456789",
     "timestamp": 1788190000,
-    "otp_length": 6
+    "otp_length": 6,
+    "server_ack": true,
+    "ack_elapsed_ms": 235
   }
 }
 ```
@@ -288,10 +294,12 @@ Mendukung pengiriman ke nomor personal (`08xxx` / `628xxx`) maupun Grup WhatsApp
 ```json
 {
   "to": "08123456789",
-  "message": "Halo, ini adalah pesan notifikasi otomatis dari sistem."
+  "message": "Halo, ini adalah pesan notifikasi otomatis dari sistem.",
+  "wait_for_ack": true,
+  "ack_timeout_ms": 3000
 }
 ```
-*Catatan:* Field target dapat menggunakan `phone`, `to`, `jid`, atau `recipient`. Field pesan dapat menggunakan `message` atau `text`.
+*Catatan:* Field target dapat menggunakan `phone`, `to`, `jid`, atau `recipient`. Field pesan dapat menggunakan `message` atau `text`. Parameter `wait_for_ack` (boolean) dan `ack_timeout_ms` (number) bersifat opsional.
 * **Contoh Target Grup WhatsApp:**
 ```json
 {
@@ -307,7 +315,9 @@ Mendukung pengiriman ke nomor personal (`08xxx` / `628xxx`) maupun Grup WhatsApp
   "data": {
     "messageId": "BAE5F61...",
     "phone": "628123456789",
-    "timestamp": 1788190000
+    "timestamp": 1788190000,
+    "server_ack": true,
+    "ack_elapsed_ms": 198
   }
 }
 ```

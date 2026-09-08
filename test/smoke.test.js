@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import 'dotenv/config';
 import { SessionService } from '../src/services/sessionService.js';
+import { BaileysService } from '../src/services/baileysService.js';
 import { isTcTokenExpired, TC_TOKEN_BUCKET_DURATION, TC_TOKEN_NUM_BUCKETS } from '../src/utils/tcTokenHelper.js';
 import { createDeliveryGuard } from '../src/utils/deliveryGuard.js';
 import { createSenderRateLimiter } from '../src/utils/senderRateLimiter.js';
@@ -388,6 +389,111 @@ test('senderRateLimiter — batas harian menahan pengiriman meski kuota jam masi
   assert.strictEqual(blocked.tier, 'day');
   assert.ok(blocked.retryAfterMs > 86000000 - 4000, 'retry harus menunggu window harian terluar');
 });
+
+test('BaileysService — waitForServerAck menyelesaikan Promise saat node ack valid diterima', async () => {
+  const service = new BaileysService();
+  const msgId = 'TEST_ACK_SUCCESS_123';
+  const ackPromise = service.waitForServerAck(msgId, 1000);
+
+  service.handleMessageAck({
+    tag: 'ack',
+    attrs: {
+      class: 'message',
+      id: msgId,
+      from: '628123456789@s.whatsapp.net',
+    },
+  });
+
+  const result = await ackPromise;
+  assert.strictEqual(result.messageId, msgId);
+  assert.strictEqual(result.serverAck, true);
+  assert.ok(typeof result.ackElapsedMs === 'number');
+  assert.strictEqual(service.pendingAcks.size, 0);
+});
+
+test('BaileysService — waitForServerAck mendeteksi penolakan ack ber-error (WA_SERVER_REJECTED 502)', async () => {
+  const service = new BaileysService();
+  const msgId = 'TEST_ACK_ERROR_463';
+  const ackPromise = service.waitForServerAck(msgId, 1000);
+
+  service.handleMessageAck({
+    tag: 'ack',
+    attrs: {
+      class: 'message',
+      id: msgId,
+      from: '628123456789@s.whatsapp.net',
+      error: '463',
+    },
+  });
+
+  await assert.rejects(
+    async () => await ackPromise,
+    (err) => {
+      assert.strictEqual(err.code, 'WA_SERVER_REJECTED');
+      assert.strictEqual(err.statusCode, 502);
+      assert.strictEqual(err.serverErrorCode, '463');
+      assert.strictEqual(err.messageId, msgId);
+      return true;
+    }
+  );
+  assert.strictEqual(service.pendingAcks.size, 0);
+});
+
+test('BaileysService — waitForServerAck mendeteksi timeout server ack (WA_SERVER_ACK_TIMEOUT 504)', async () => {
+  const service = new BaileysService();
+  const msgId = 'TEST_ACK_TIMEOUT';
+  const ackPromise = service.waitForServerAck(msgId, 50);
+
+  await assert.rejects(
+    async () => await ackPromise,
+    (err) => {
+      assert.strictEqual(err.code, 'WA_SERVER_ACK_TIMEOUT');
+      assert.strictEqual(err.statusCode, 504);
+      assert.strictEqual(err.messageId, msgId);
+      return true;
+    }
+  );
+  assert.strictEqual(service.pendingAcks.size, 0);
+});
+
+test('BaileysService — clearPendingAcks membatalkan semua pending acks saat socket terputus', async () => {
+  const service = new BaileysService();
+  const msgId1 = 'TEST_ACK_DROP_1';
+  const msgId2 = 'TEST_ACK_DROP_2';
+  const p1 = service.waitForServerAck(msgId1, 5000);
+  const p2 = service.waitForServerAck(msgId2, 5000);
+
+  service.clearPendingAcks('Socket terminated');
+
+  await assert.rejects(
+    async () => await p1,
+    (err) => {
+      assert.strictEqual(err.code, 'WA_SOCKET_CLOSED');
+      assert.strictEqual(err.statusCode, 503);
+      return true;
+    }
+  );
+  await assert.rejects(
+    async () => await p2,
+    (err) => {
+      assert.strictEqual(err.code, 'WA_SOCKET_CLOSED');
+      assert.strictEqual(err.statusCode, 503);
+      return true;
+    }
+  );
+  assert.strictEqual(service.pendingAcks.size, 0);
+});
+
+test('GET /status menampilkan konfigurasi server_ack dan pending_acks', async () => {
+  const res = await fetch(`${BASE_URL}/status`, { headers: { 'x-api-key': API_KEY } });
+  const data = await res.json();
+  assert.strictEqual(res.status, 200);
+  assert.ok(data.data?.server_ack);
+  assert.strictEqual(typeof data.data.server_ack.enabled, 'boolean');
+  assert.strictEqual(typeof data.data.server_ack.timeout_ms, 'number');
+  assert.strictEqual(typeof data.data.server_ack.pending_acks, 'number');
+});
+
 
 const run = async () => {
   console.log(`Smoke Test Integrasi — WhatsApp Gateway (Baileys v7) -> ${BASE_URL}\n`);
