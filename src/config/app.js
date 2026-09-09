@@ -40,4 +40,8 @@ export const config = {
     enabled: process.env.SERVER_ACK_ENABLED !== 'false',
     timeoutMs: parsePositiveInt(process.env.SERVER_ACK_TIMEOUT_MS, 3000),
   },
+  otp: {
+    defaultExpiryMinutes: parsePositiveInt(process.env.OTP_DEFAULT_EXPIRY_MINUTES, 5),
+    includeRef: process.env.OTP_INCLUDE_REF !== 'false',
+  },
 };

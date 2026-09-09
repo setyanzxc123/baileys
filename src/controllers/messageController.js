@@ -2,6 +2,7 @@ import { waClient } from '../services/baileysService.js';
 import { queueService } from '../services/queueService.js';
 import { config } from '../config/app.js';
 import { OTP_PATTERN, DEFAULT_APP_NAME, DEFAULT_DOC_NAME, DEFAULT_DOC_MIMETYPE } from '../config/constants.js';
+import { buildOtpMessage } from '../utils/otpTemplateHelper.js';
 
 const resolveSendError = (res, error, fallbackCode) => {
   if (error?.statusCode === 429) {
@@ -84,7 +85,17 @@ export const sendMessage = async (req, res) => {
 };
 
 export const sendOtp = async (req, res) => {
-  const { phone, otp, app_name, template, wait_for_ack, ack_timeout_ms } = req.body || {};
+  const {
+    phone,
+    otp,
+    app_name,
+    template,
+    template_index,
+    expiry_minutes,
+    include_ref,
+    wait_for_ack,
+    ack_timeout_ms,
+  } = req.body || {};
 
   if (!phone || !otp) {
     return res.status(422).json({
@@ -102,8 +113,21 @@ export const sendOtp = async (req, res) => {
   }
 
   const appTitle = app_name || config.serviceName || DEFAULT_APP_NAME;
-  const defaultText = `*KODE VERIFIKASI LOGIN*\n\nKode OTP Anda untuk portal *${appTitle}* adalah:\n\n*${otp}*\n\n_Kode ini berlaku selama 5 menit. Jangan berikan kode ini kepada siapapun termasuk petugas._`;
-  const textMessage = template ? template.replace('{{otp}}', String(otp)).replace('{{app_name}}', appTitle) : defaultText;
+  const expiry = Number.isInteger(Number(expiry_minutes)) && Number(expiry_minutes) > 0
+    ? Number(expiry_minutes)
+    : (config.otp?.defaultExpiryMinutes || 5);
+  const shouldIncludeRef = include_ref !== undefined
+    ? Boolean(include_ref)
+    : (config.otp?.includeRef !== false);
+
+  const { text: textMessage, templateIndex, refId } = buildOtpMessage({
+    otp,
+    appName: appTitle,
+    expiryMinutes: expiry,
+    template,
+    templateIndex: template_index,
+    includeRef: shouldIncludeRef,
+  });
 
   try {
     const result = await waClient.sendMessage(phone, textMessage, {
@@ -116,6 +140,8 @@ export const sendOtp = async (req, res) => {
       data: {
         ...result,
         otp_length: String(otp).length,
+        template_index: templateIndex,
+        ref_id: refId,
       },
     });
   } catch (error) {

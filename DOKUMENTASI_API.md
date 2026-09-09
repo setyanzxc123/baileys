@@ -265,12 +265,22 @@ Menutup socket lama dan menyambungkan kembali tanpa menghapus sesi login di disk
   "phone": "08123456789",
   "otp": "748192",
   "app_name": "Portal Pelayanan",
-  "template": "Kode verifikasi Anda untuk {{app_name}} adalah *{{otp}}*. Berlaku 5 menit.",
+  "template": "{Halo|Hai}, kode verifikasi Anda untuk {{app_name}} adalah *{{otp}}*. Berlaku {{expiry_minutes}} menit.",
+  "template_index": 0,
+  "expiry_minutes": 5,
+  "include_ref": true,
   "wait_for_ack": true,
   "ack_timeout_ms": 3000
 }
 ```
-*Catatan:* Parameter `app_name`, `template`, `wait_for_ack`, dan `ack_timeout_ms` bersifat opsional. Secara default, `wait_for_ack` bernilai `true` (menahan respons hingga konfirmasi Server ACK / Centang 1 diterima dalam 150-500ms).
+* **Keterangan Parameter Opsional:**
+  * `app_name`: Nama portal / aplikasi (default: konfigurasi `SERVICE_NAME` atau `"WhatsApp Gateway"`).
+  * `template`: Format pesan kustom (mendukung placeholder `{{otp}}`, `{{app_name}}`, `{{expiry_minutes}}`, dan Spintax acak seperti `{Halo|Hai|Yth}`).
+  * `template_index`: Pilihan indeks template bawaan (`0`: Formal, `1`: Langsung/To-the-point, `2`: Keamanan Akun, `3`: Ramah/Personal). Jika tidak diisi dan `template` kosong, gateway merotasi secara acak.
+  * `expiry_minutes`: Masa berlaku kode dalam menit (default: `5`).
+  * `include_ref`: Menyisipkan kode referensi unik di akhir pesan (`Ref: #XXXXX`) untuk memastikan hash pesan selalu unik dan terhindar dari spam filter WhatsApp (default: `true`).
+  * `wait_for_ack`: Menahan respons HTTP hingga Server ACK / Centang 1 terkonfirmasi (default: `true`).
+  * `ack_timeout_ms`: Batas waktu tunggu Server ACK sebelum timeout (default: `3000` ms).
 * **Contoh Respons (200 OK):**
 ```json
 {
@@ -282,7 +292,9 @@ Menutup socket lama dan menyambungkan kembali tanpa menghapus sesi login di disk
     "timestamp": 1788190000,
     "otp_length": 6,
     "server_ack": true,
-    "ack_elapsed_ms": 235
+    "ack_elapsed_ms": 235,
+    "template_index": 1,
+    "ref_id": "X8K2M"
   }
 }
 ```
