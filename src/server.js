@@ -1,8 +1,5 @@
-import express from 'express';
 import { config } from './config/app.js';
-import { requestLogger } from './middlewares/requestLogger.js';
-import { notFoundHandler, errorHandler } from './middlewares/errorHandler.js';
-import routes from './routes/index.js';
+import { app } from './app.js';
 import { waClient } from './services/baileysService.js';
 import { sessionService } from './services/sessionService.js';
 
@@ -17,27 +14,15 @@ try {
   process.exit(1);
 }
 
-const app = express();
-
-if (config.trustProxy) {
-  app.set('trust proxy', 1);
-}
-
-app.use(express.json({ limit: '64kb' }));
-app.use(requestLogger);
-
-app.use(routes);
-
-app.use(notFoundHandler);
-app.use(errorHandler);
-
 const server = app.listen(config.port, () => {
   console.log(`[WA-GATEWAY] ${config.serviceName} aktif di port: ${config.port}`);
   console.log(`[WA-GATEWAY] API Key: ${config.apiKey.slice(0, 6)}...`);
 
-  waClient.init().catch((err) => {
-    console.error('[WA-GATEWAY] Fatal error saat inisialisasi Baileys:', err);
-  });
+  if (config.autostartWa) {
+    waClient.init().catch((err) => {
+      console.error('[WA-GATEWAY] Fatal error saat inisialisasi Baileys:', err);
+    });
+  }
 
   const housekeepingInterval = setInterval(() => {
     sessionService.housekeep(48);
@@ -92,4 +77,4 @@ process.on('SIGINT', () => handleShutdown('SIGINT'));
 process.on('SIGTERM', () => handleShutdown('SIGTERM'));
 process.on('exit', () => sessionService.releaseLock());
 
-export { app, server };
+export { server };

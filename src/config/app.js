@@ -10,6 +10,7 @@ const parsePositiveInt = (value, fallback) => {
 export const config = {
   port: parsePositiveInt(process.env.PORT, 3001),
   apiKey: process.env.API_KEY || '',
+  autostartWa: process.env.WA_AUTOSTART !== 'false',
   sessionDir: process.env.SESSION_DIR || './sessions/primary',
   logLevel: process.env.LOG_LEVEL || 'silent',
   serviceName: process.env.SERVICE_NAME || 'WhatsApp Gateway',
@@ -31,6 +32,9 @@ export const config = {
   serverAck: {
     enabled: process.env.SERVER_ACK_ENABLED !== 'false',
     timeoutMs: parsePositiveInt(process.env.SERVER_ACK_TIMEOUT_MS, 3000),
+  },
+  send: {
+    composingDelayMs: parsePositiveInt(process.env.COMPOSING_DELAY_MS, 800),
   },
   otp: {
     defaultExpiryMinutes: parsePositiveInt(process.env.OTP_DEFAULT_EXPIRY_MINUTES, 5),

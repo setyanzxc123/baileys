@@ -134,7 +134,10 @@ Folder `sessions/` menyimpan kunci enkripsi Signal Protocol hasil pairing.
 ## Verifikasi
 
 ```bash
-npm run lint      # ESLint (flat config)
-npm run test:unit # Unit test OTP template
-npm test          # Smoke test integrasi (butuh gateway berjalan)
+npm run lint            # ESLint (flat config)
+npm test                # Suite test utama: HTTP + service dengan mock sock, aman tanpa koneksi WhatsApp
+npm run test:unit       # Unit test OTP template
+npm run test:integration# Smoke test kontrak HTTP, butuh gateway berjalan di PORT
 ```
+
+Suite `npm test` tidak pernah mengirim pesan nyata dan tidak memerlukan sesi WhatsApp; koneksi socket dimock penuh. Gunakan `npm run test:integration` hanya terhadap gateway yang sengaja dijalankan untuk verifikasi.

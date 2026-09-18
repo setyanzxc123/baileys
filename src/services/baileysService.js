@@ -482,7 +482,7 @@ export class BaileysService {
     try {
       if (this.sock?.sendPresenceUpdate) {
         await this.sock.sendPresenceUpdate('composing', targetJid);
-        await new Promise((resolve) => setTimeout(resolve, 800));
+        await new Promise((resolve) => setTimeout(resolve, config.send.composingDelayMs));
         await this.sock.sendPresenceUpdate('paused', targetJid);
       }
     } catch {

@@ -24,12 +24,6 @@ const jsonPost = (path, body, headers = {}) =>
 
 const samplePhone = () => `08123${Math.floor(100000 + Math.random() * 900000)}`;
 
-const gatewayConnected = async () => {
-  const res = await fetch(`${BASE_URL}/status`, { headers: { 'x-api-key': API_KEY } });
-  const data = await res.json();
-  return data.data?.connected === true;
-};
-
 test('GET / — service discovery mengembalikan katalog endpoint', async () => {
   const res = await fetch(`${BASE_URL}/`);
   const data = await res.json();
@@ -126,80 +120,11 @@ test('POST /send-otp saat gateway offline — fast-fail 503 WA_GATEWAY_OFFLINE',
   assert.strictEqual(data.code, 'WA_GATEWAY_OFFLINE');
 });
 
-test('POST /send-otp cooldown — OTP kedua ke nomor sama ditolak 429 OTP_COOLDOWN', async () => {
-  if (await gatewayConnected()) {
-    return {
-      skipped: true,
-      reason: 'gateway online — request pertama test ini menembus jalur kirim real, dilewati untuk melindungi nomor',
-    };
-  }
-
-  const body = { phone: samplePhone(), otp: '555111' };
-  const headers = { 'x-api-key': API_KEY };
-
-  const resFirst = await jsonPost('/send-otp', body, headers);
-  assert.ok(
-    [200, 500, 503].includes(resFirst.status),
-    `permintaan pertama diharapkan 200/500/503, didapat ${resFirst.status}`
-  );
-
-  const resSecond = await jsonPost('/send-otp', body, headers);
-  const dataSecond = await resSecond.json();
-  assert.strictEqual(resSecond.status, 429);
-  assert.strictEqual(dataSecond.code, 'OTP_COOLDOWN');
-});
-
 test('POST /send-otp format OTP tidak valid — 422 OTP_INVALID_FORMAT', async () => {
   const res = await jsonPost('/send-otp', { phone: samplePhone(), otp: '12ab56' }, { 'x-api-key': API_KEY });
   const data = await res.json();
   assert.strictEqual(res.status, 422);
   assert.strictEqual(data.code, 'OTP_INVALID_FORMAT');
-});
-
-test('POST /send-otp payload invalid tidak membakar cooldown nomor', async () => {
-  if (await gatewayConnected()) {
-    return {
-      skipped: true,
-      reason: 'gateway online — request valid test ini menembus jalur kirim real, dilewati untuk melindungi nomor',
-    };
-  }
-
-  const phone = samplePhone();
-  const headers = { 'x-api-key': API_KEY };
-
-  const resInvalid = await jsonPost('/send-otp', { phone, otp: 'abcd' }, headers);
-  assert.strictEqual(resInvalid.status, 422);
-
-  const resNext = await jsonPost('/send-otp', { phone, otp: '654321' }, headers);
-  assert.ok(
-    [200, 500, 503].includes(resNext.status),
-    `OTP valid setelah payload invalid tidak boleh kena 429, didapat ${resNext.status}`
-  );
-});
-
-test('POST /send-message ke nomor tidak terdaftar — 422 WA_NUMBER_NOT_REGISTERED', async () => {
-  if (!(await gatewayConnected())) {
-    return {
-      skipped: true,
-      reason: 'gateway offline — verifikasi nomor tidak terdaftar memerlukan koneksi aktif',
-    };
-  }
-
-  const res = await jsonPost('/send-message', { phone: '620000000000', message: 'tes' }, { 'x-api-key': API_KEY });
-  const data = await res.json();
-  assert.strictEqual(res.status, 422);
-  assert.strictEqual(data.code, 'WA_NUMBER_NOT_REGISTERED');
-});
-
-test('POST /restart — koneksi dimulai ulang tanpa hapus sesi', async () => {
-  const res = await fetch(`${BASE_URL}/restart`, { method: 'POST', headers: { 'x-api-key': API_KEY } });
-  const data = await res.json();
-  assert.strictEqual(res.status, 200);
-  assert.strictEqual(data.status, 'success');
-  assert.ok(
-    ['connecting', 'qr_ready', 'connected'].includes(data.data?.current_status),
-    `current_status tak terduga: ${data.data?.current_status}`
-  );
 });
 
 test('SessionService — acquireLock, duplicate guard, dan stale lock recovery', async () => {
