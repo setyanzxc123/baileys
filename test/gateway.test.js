@@ -190,6 +190,73 @@ test('Kuota pengirim terkonsumsi tepat satu kali per kirim sukses', async () => 
   assert.strictEqual(afterSnap.used_hour, before.used_hour + 1);
 });
 
+test('Kuota pengirim tidak terbakar saat gateway offline', async () => {
+  waClient.status = 'disconnected';
+  waClient.sock = null;
+  const before = waClient.senderLimit.snapshot();
+
+  const res = await jsonPost('/send-message', { phone: uniquePhone(), message: 'tes' });
+  assert.strictEqual(res.status, 503);
+
+  const afterSnap = waClient.senderLimit.snapshot();
+  assert.strictEqual(afterSnap.used_hour, before.used_hour);
+  assert.strictEqual(afterSnap.used_day, before.used_day);
+});
+
+test('Kuota pengirim tidak terbakar saat nomor tidak terdaftar', async () => {
+  injectConnectedSock({
+    onWhatsApp: async () => [{ exists: false, jid: null }],
+  });
+  const before = waClient.senderLimit.snapshot();
+
+  const res = await jsonPost('/send-message', { phone: uniquePhone(), message: 'tes', wait_for_ack: false });
+  assert.strictEqual(res.status, 422);
+
+  const afterSnap = waClient.senderLimit.snapshot();
+  assert.strictEqual(afterSnap.used_hour, before.used_hour);
+});
+
+test('Kuota pengirim tidak terbakar saat circuit breaker terbuka', async () => {
+  injectConnectedSock();
+  waClient.deliveryGuard.registerHit();
+  const before = waClient.senderLimit.snapshot();
+
+  const res = await jsonPost('/send-message', { phone: uniquePhone(), message: 'tes', wait_for_ack: false });
+  assert.strictEqual(res.status, 429);
+
+  const afterSnap = waClient.senderLimit.snapshot();
+  assert.strictEqual(afterSnap.used_hour, before.used_hour);
+});
+
+test('OTP cooldown di-refund saat kirim gagal sehingga percobaan berikutnya diloloskan', async () => {
+  const phone = uniquePhone();
+  const body = { phone, otp: '777777', wait_for_ack: false };
+
+  waClient.status = 'disconnected';
+  waClient.sock = null;
+  const failed = await jsonPost('/send-otp', body);
+  assert.strictEqual(failed.status, 503);
+
+  injectConnectedSock();
+  const retried = await jsonPost('/send-otp', body);
+  assert.strictEqual(retried.status, 200);
+});
+
+test('OTP cooldown tidak di-refund saat server ack timeout (504) untuk cegah OTP dobel', async () => {
+  injectConnectedSock();
+  const phone = uniquePhone();
+  const body = { phone, otp: '888888', ack_timeout_ms: 100 };
+
+  const first = await jsonPost('/send-otp', body);
+  assert.strictEqual(first.status, 504);
+
+  const second = await jsonPost('/send-otp', { ...body, wait_for_ack: false });
+  const secondData = await second.json();
+
+  assert.strictEqual(second.status, 429);
+  assert.strictEqual(secondData.code, 'OTP_COOLDOWN');
+});
+
 test('GET /status menampilkan konfigurasi server ack', async () => {
   const res = await fetch(`${baseUrl}/status`, { headers: { 'x-api-key': API_KEY } });
   const data = await res.json();

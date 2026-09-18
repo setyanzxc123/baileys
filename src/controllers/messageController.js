@@ -1,6 +1,7 @@
 import { waClient } from '../services/baileysService.js';
 import { config } from '../config/app.js';
 import { OTP_PATTERN, DEFAULT_APP_NAME } from '../config/constants.js';
+import { otpCooldown, otpHourly, otpPhoneKey } from '../middlewares/rateLimiter.js';
 import { buildOtpMessage } from '../utils/otpTemplateHelper.js';
 
 const resolveSendError = (res, error, fallbackCode) => {
@@ -144,6 +145,11 @@ export const sendOtp = async (req, res) => {
       },
     });
   } catch (error) {
+    if (error?.statusCode !== 504) {
+      const key = otpPhoneKey(req);
+      otpCooldown.refund(key);
+      otpHourly.refund(key);
+    }
     return resolveSendError(res, error, 'SEND_FAILED');
   }
 };

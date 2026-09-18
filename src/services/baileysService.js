@@ -53,7 +53,7 @@ export class BaileysService {
     );
   }
 
-  assertSendAllowed() {
+  assertBreakerClosed() {
     if (this.deliveryGuard.isOpen()) {
       const retryAfterMs = this.deliveryGuard.retryAfterMs();
       const error = new Error(
@@ -64,7 +64,9 @@ export class BaileysService {
       error.retryAfterMs = retryAfterMs;
       throw error;
     }
+  }
 
+  consumeSendQuota() {
     const limit = this.senderLimit.tryConsume();
     if (!limit.allowed) {
       const error = new Error(
@@ -495,7 +497,7 @@ export class BaileysService {
   }
 
   async sendMessage(phone, message, options = {}) {
-    this.assertSendAllowed();
+    this.assertBreakerClosed();
     const isConnected = await this.waitForConnection(5000);
     if (!isConnected || !this.sock) {
       throw new Error('WhatsApp Gateway belum terhubung. Silakan scan QR Code terlebih dahulu.');
@@ -506,6 +508,7 @@ export class BaileysService {
     }
 
     const jid = await this.prepareRecipient(phone);
+    this.consumeSendQuota();
     const waitForAck = options.waitForAck !== undefined ? Boolean(options.waitForAck) : config.serverAck.enabled;
     const timeoutMs = options.ackTimeoutMs ? Number(options.ackTimeoutMs) : config.serverAck.timeoutMs;
     const messageId = options.messageId || generateMessageIDV2(this.sock.user?.id);

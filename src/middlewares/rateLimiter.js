@@ -23,7 +23,7 @@ export function createRateLimiter(options) {
   }, sweepInterval(windowMs));
   sweeper.unref?.();
 
-  return (req, res, next) => {
+  const limiter = (req, res, next) => {
     const key = keyFn(req);
     if (key === null || key === undefined) return next();
 
@@ -52,6 +52,19 @@ export function createRateLimiter(options) {
     res.set('RateLimit-Reset', String(resetSec));
     return next();
   };
+
+  limiter.refund = (key) => {
+    if (!key) return;
+    const bucket = buckets.get(key);
+    if (!bucket) return;
+    if (bucket.count > 1) {
+      bucket.count -= 1;
+    } else {
+      buckets.delete(key);
+    }
+  };
+
+  return limiter;
 }
 
 export const clientIpKey = (req) => {
