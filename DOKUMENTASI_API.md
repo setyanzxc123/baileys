@@ -1,9 +1,9 @@
 # REST API Documentation: WhatsApp Outbound Gateway (Baileys v7)
 
 > **Spesifikasi Teknis & Panduan Integrasi Mandiri**  
-> Versi API: `1.0.0`  
+> Versi API: `1.1.0` (Send-Only OTP Scope)  
 > Engine: `Baileys v7.0.0-rc14 (Pure ESM)`  
-> Format Pertukaran Data: `JSON (application/json)` dan `Multipart (multipart/form-data)`  
+> Format Pertukaran Data: `JSON (application/json)`
 
 ---
 
@@ -21,20 +21,10 @@
      * `POST /pair-code` - Request 8-Digit Pairing Code
      * `POST /logout` - Putuskan Sesi & Bersihkan Auth
      * `POST /restart` - Restart Socket Tanpa Hapus Sesi
-   * [C. Pengiriman Pesan & Media](#c-pengiriman-pesan--media)
+   * [C. Pengiriman Pesan](#c-pengiriman-pesan)
      * `POST /send-otp` - Kirim Pesan OTP (Format Standar / Custom Template)
-     * `POST /send-message` - Kirim Pesan Teks (Personal & Grup)
-     * `POST /send-document` - Kirim Berkas Dokumen (URL atau Direct Upload)
-     * `POST /send-image` - Kirim Berkas Gambar (URL atau Direct Upload)
-     * `POST /send-bulk` - Pengiriman Massal Asynchronous (Background Job)
-     * `GET /jobs/:job_id` - Cek Progres & Hasil Pengiriman Bulk Job
-   * [D. Validasi & Utilitas](#d-validasi--utilitas)
-     * `POST /check-number` - Cek Registrasi Nomor di WhatsApp
+     * `POST /send-message` - Kirim Pesan Teks Personal
 4. [Contoh Kode Integrasi](#4-contoh-kode-integrasi)
-   * [PHP (cURL & Laravel / Guzzle)](#1-integrasi-php)
-   * [JavaScript / Node.js (Fetch)](#2-integrasi-javascript--nodejs)
-   * [Python (Requests)](#3-integrasi-python)
-   * [cURL (Terminal CLI)](#4-integrasi-curl-terminal)
 
 ---
 
@@ -43,9 +33,8 @@
 ### Base URL
 ```text
 http://127.0.0.1:3001
-# atau URL reverse proxy / domain:
-https://wa-gateway.domainanda.com
 ```
+Gateway hanya melayani konsumen di mesin yang sama (bind `127.0.0.1`). Endpoint pengiriman media, bulk, dan probing nomor telah dihapus karena gateway dikhususkan untuk pengiriman OTP/notifikasi teks outbound.
 
 ### Skema Keamanan API Key
 Semua endpoint pengiriman pesan dan operasi perangkat dilindungi menggunakan **API Key** (dikonfigurasi pada file `.env` server gateway). Klien wajib menyertakan API Key melalui salah satu header berikut:
@@ -74,17 +63,6 @@ Semua endpoint pengiriman pesan dan operasi perangkat dilindungi menggunakan **A
 }
 ```
 
-### Format Respons Diterima ke Antrean (HTTP 202 Accepted)
-```json
-{
-  "status": "queued",
-  "message": "Permintaan pengiriman massal diterima dan sedang diproses di antrean.",
-  "job_id": "job_1788191325138_59775b4e",
-  "total": 50,
-  "check_status_url": "/jobs/job_1788191325138_59775b4e"
-}
-```
-
 ### Format Respons Gagal (HTTP 4xx / 5xx)
 ```json
 {
@@ -99,17 +77,16 @@ Semua endpoint pengiriman pesan dan operasi perangkat dilindungi menggunakan **A
 |---|---|---|
 | **401** | `UNAUTHORIZED` | Header API Key tidak valid atau belum disertakan. |
 | **404** | `NOT_FOUND` | Endpoint tidak ditemukan. |
-| **404** | `JOB_NOT_FOUND` | Job ID pada antrean bulk tidak ditemukan. |
 | **422** | `VALIDATION_ERROR` | Parameter wajib (`phone`/`to`, `message`, `otp`, dll.) kosong atau tidak valid. |
 | **422** | `OTP_INVALID_FORMAT` | Parameter `otp` harus berupa 4-8 digit angka. |
-| **422** | `FILE_TOO_LARGE` | Berkas direct upload melebihi batas (25MB dokumen, 10MB gambar). |
-| **422** | `BULK_TOO_MANY_RECIPIENTS` | Jumlah penerima melebihi batas `BULK_MAX_RECIPIENTS` (default 100). |
-| **422** | `BULK_DELAY_TOO_SHORT` | Jeda `delay_ms` di bawah batas keamanan anti-spam (min. 1000 ms). |
+| **422** | `WA_INVALID_TARGET` | Nomor tujuan tidak valid. Hanya nomor pribadi WhatsApp yang didukung. |
+| **422** | `WA_NUMBER_NOT_REGISTERED` | Nomor tujuan tidak terdaftar di WhatsApp. Pengiriman dihentikan demi reputasi akun pengirim. |
 | **429** | `RATE_LIMITED` | Batas request per menit terlampaui. Header `Retry-After` berisi detik tunggu. |
 | **429** | `OTP_COOLDOWN` | OTP ke nomor tujuan baru saja dikirim. Silakan tunggu jeda cooldown (default 60 detik). |
 | **429** | `OTP_HOURLY_LIMIT` | Batas maksimum pengiriman OTP per nomor per jam telah tercapai (default 5). |
+| **429** | `WA_CIRCUIT_BREAKER_OPEN` / `WA_SENDER_LIMIT` | Circuit breaker 463 aktif atau kuota pengirim harian/jam tercapai. Header `Retry-After` berisi detik tunggu. |
 | **502** | `WA_SERVER_REJECTED` | Server WhatsApp menolak pengiriman pesan (misal penolakan server 463/479). Pemicu fallback provider seketika. |
-| **504** | `WA_SERVER_ACK_TIMEOUT` | Batas waktu menunggu konfirmasi penerimaan server WhatsApp (Server ACK / centang 1) terlampaui. Pemicu fallback provider seketika. |
+| **504** | `WA_SERVER_ACK_TIMEOUT` | Batas waktu menunggu konfirmasi penerimaan server WhatsApp (Server ACK / centang 1) terlampaui. Pesan kemungkinan sudah ditulis ke socket; status akhir tidak pasti. Konsumen disarankan menunggu, bukan langsung mengirim ulang OTP yang sama. |
 | **503** | `WA_GATEWAY_OFFLINE` | Socket WhatsApp belum terhubung / sesi logout. |
 | **500** | `SEND_FAILED` | Kesalahan internal saat mengirimkan pesan ke jaringan WhatsApp. |
 
@@ -120,7 +97,7 @@ Semua endpoint pengiriman pesan dan operasi perangkat dilindungi menggunakan **A
 ### A. Sistem & Monitoring
 
 #### 1. Service Discovery (`GET /`)
-Mengembalikan katalog informasi gateway, versi engine, status socket, dan daftar endpoint.
+Mengembalikan nama gateway, versi engine, dan daftar endpoint.
 * **Autentikasi:** Public
 * **Contoh Respons (200 OK):**
 ```json
@@ -129,18 +106,7 @@ Mengembalikan katalog informasi gateway, versi engine, status socket, dan daftar
   "version": "1.0.0",
   "engine": "Baileys v7",
   "status": "running",
-  "whatsapp": {
-    "status": "connected",
-    "connected": true,
-    "user": {
-      "id": "628123456789@s.whatsapp.net",
-      "name": "Sender Name",
-      "phone": "628123456789"
-    },
-    "qr_available": false,
-    "last_disconnect": null
-  },
-  "endpoints": { ... }
+  "endpoints": { "...": "..." }
 }
 ```
 
@@ -158,10 +124,7 @@ Digunakan oleh container health check, uptime monitor, atau PM2 monitor.
     "heap_used_mb": "24.6"
   },
   "whatsapp": {
-    "status": "connected",
-    "connected": true,
-    "user": { "phone": "628123456789" },
-    "qr_available": false
+    "connected": true
   }
 }
 ```
@@ -181,7 +144,9 @@ Digunakan oleh container health check, uptime monitor, atau PM2 monitor.
       "phone": "628123456789"
     },
     "qr_available": false,
-    "last_disconnect": null
+    "last_disconnect": null,
+    "circuit_breaker": { "open": false },
+    "sender_limit": { "used_hour": 3, "used_day": 12 }
   }
 }
 ```
@@ -255,7 +220,7 @@ Menutup socket lama dan menyambungkan kembali tanpa menghapus sesi login di disk
 
 ---
 
-### C. Pengiriman Pesan & Media
+### C. Pengiriman Pesan
 
 #### 8. Kirim Pesan OTP (`POST /send-otp`)
 * **Autentikasi:** Protected (`x-api-key`)
@@ -300,7 +265,7 @@ Menutup socket lama dan menyambungkan kembali tanpa menghapus sesi login di disk
 ```
 
 #### 9. Kirim Pesan Teks (`POST /send-message`)
-Mendukung pengiriman ke nomor personal (`08xxx` / `628xxx`) maupun Grup WhatsApp (`xxx@g.us`).
+Hanya mendukung nomor personal (`08xxx` / `628xxx`). Nomor grup atau format lain ditolak dengan `WA_INVALID_TARGET`.
 * **Autentikasi:** Protected (`x-api-key`)
 * **Request Body:**
 ```json
@@ -312,13 +277,6 @@ Mendukung pengiriman ke nomor personal (`08xxx` / `628xxx`) maupun Grup WhatsApp
 }
 ```
 *Catatan:* Field target dapat menggunakan `phone`, `to`, `jid`, atau `recipient`. Field pesan dapat menggunakan `message` atau `text`. Parameter `wait_for_ack` (boolean) dan `ack_timeout_ms` (number) bersifat opsional.
-* **Contoh Target Grup WhatsApp:**
-```json
-{
-  "to": "120363023456789012@g.us",
-  "message": "Pemberitahuan: Rapat koordinasi dimulai pukul 10.00 WITA."
-}
-```
 * **Contoh Respons (200 OK):**
 ```json
 {
@@ -334,170 +292,11 @@ Mendukung pengiriman ke nomor personal (`08xxx` / `628xxx`) maupun Grup WhatsApp
 }
 ```
 
-#### 10. Kirim Dokumen PDF / Berkas (`POST /send-document`)
-Mendukung 2 metode pengiriman:
-1. **Via URL Publik (JSON Payload)**: `document_url` atau `url`
-2. **Via Upload Berkas Langsung (Multipart/Form-Data)**: field `file` (maksimal 25MB)
-
-* **Opsi A: Request Body JSON (URL Publik):**
-```json
-{
-  "to": "08123456789",
-  "document_url": "https://domainanda.com/files/undangan.pdf",
-  "file_name": "Undangan_Rapat.pdf",
-  "caption": "Lampiran surat undangan resmi.",
-  "mimetype": "application/pdf"
-}
-```
-
-* **Opsi B: Request Multipart/Form-Data (Direct File):**
-```http
-POST /send-document HTTP/1.1
-x-api-key: <API_KEY>
-Content-Type: multipart/form-data; boundary=----WebKitFormBoundary
-
-------WebKitFormBoundary
-Content-Disposition: form-data; name="to"
-
-08123456789
-------WebKitFormBoundary
-Content-Disposition: form-data; name="file"; filename="Undangan.pdf"
-Content-Type: application/pdf
-
-<binary data buffer>
-------WebKitFormBoundary
-Content-Disposition: form-data; name="caption"
-
-Lampiran berkas resmi
-------WebKitFormBoundary--
-```
-
-* **Contoh Respons (200 OK):**
-```json
-{
-  "status": "success",
-  "message": "Dokumen berhasil dikirim via WhatsApp.",
-  "data": {
-    "messageId": "BAE5F...",
-    "phone": "628123456789",
-    "fileName": "Undangan.pdf",
-    "timestamp": 1788190000
-  }
-}
-```
-
-#### 11. Kirim Gambar / Foto (`POST /send-image`)
-Mendukung 2 metode pengiriman:
-1. **Via URL Publik (JSON Payload)**: `image_url` atau `url`
-2. **Via Upload Berkas Langsung (Multipart/Form-Data)**: field `file` (maksimal 10MB)
-
-* **Request Body JSON (URL Publik):**
-```json
-{
-  "to": "08123456789",
-  "image_url": "https://domainanda.com/images/banner.jpg",
-  "caption": "Foto dokumentasi kegiatan."
-}
-```
-
-* **Contoh Respons (200 OK):**
-```json
-{
-  "status": "success",
-  "message": "Gambar berhasil dikirim via WhatsApp.",
-  "data": {
-    "messageId": "BAE5F...",
-    "phone": "628123456789",
-    "timestamp": 1788190000
-  }
-}
-```
-
-#### 12. Kirim Pesan Massal Asynchronous (`POST /send-bulk`)
-Memasukkan daftar pesan ke antrean background queue secara non-blocking untuk mencegah HTTP 504 Timeout.
-* **Autentikasi:** Protected (`x-api-key`)
-* **Request Body:**
-```json
-{
-  "delay_ms": 1500,
-  "recipients": [
-    { "phone": "081234567890", "message": "Pesan personal untuk peserta A" },
-    { "phone": "081298765432", "message": "Pesan personal untuk peserta B" },
-    { "to": "120363023456789012@g.us", "message": "Broadcast ke grup koordinasi" }
-  ]
-}
-```
-* **Contoh Respons (202 Accepted):**
-```json
-{
-  "status": "queued",
-  "message": "Permintaan pengiriman massal diterima dan sedang diproses di antrean.",
-  "job_id": "job_1788191325138_59775b4e",
-  "total": 3,
-  "check_status_url": "/jobs/job_1788191325138_59775b4e"
-}
-```
-
-#### 13. Cek Status Background Job (`GET /jobs/:job_id`)
-Melacak progres pengiriman massal dari background queue worker.
-* **Autentikasi:** Protected (`x-api-key`)
-* **Contoh Respons (200 OK - Selesai):**
-```json
-{
-  "status": "success",
-  "data": {
-    "id": "job_1788191325138_59775b4e",
-    "type": "bulk_send",
-    "status": "completed",
-    "total": 3,
-    "processed": 3,
-    "success_count": 3,
-    "failed_count": 0,
-    "delay_ms": 1500,
-    "results": [
-      { "phone": "6281234567890", "success": true, "messageId": "BAE5F1..." },
-      { "phone": "6281298765432", "success": true, "messageId": "BAE5F2..." },
-      { "phone": "120363023456789012@g.us", "success": true, "messageId": "BAE5F3..." }
-    ],
-    "error": null,
-    "created_at": "2026-09-01T00:10:00.000Z",
-    "updated_at": "2026-09-01T00:10:06.000Z",
-    "completed_at": "2026-09-01T00:10:06.000Z"
-  }
-}
-```
-
----
-
-### D. Validasi & Utilitas
-
-#### 14. Cek Registrasi Nomor di WhatsApp (`POST /check-number`)
-* **Autentikasi:** Protected (`x-api-key`)
-* **Request Body:**
-```json
-{
-  "phone": "08123456789"
-}
-```
-* **Contoh Respons (200 OK):**
-```json
-{
-  "status": "success",
-  "data": {
-    "exists": true,
-    "phone": "628123456789",
-    "jid": "628123456789@s.whatsapp.net"
-  }
-}
-```
-
 ---
 
 ## 4. Contoh Kode Integrasi
 
-### 1. Integrasi PHP
-
-#### A. Menggunakan cURL Native
+### 1. Integrasi PHP (cURL)
 ```php
 <?php
 function sendWhatsAppMessage($to, $message) {
@@ -529,31 +328,8 @@ function sendWhatsAppMessage($to, $message) {
 }
 ```
 
-#### B. Menggunakan Laravel / Guzzle (Upload File Direct)
-```php
-use Illuminate\Support\Facades\Http;
-
-$response = Http::withHeaders([
-    'x-api-key' => config('services.whatsapp.api_key')
-])->attach(
-    'file', file_get_contents(storage_path('app/undangan.pdf')), 'Undangan.pdf'
-)->post('http://127.0.0.1:3001/send-document', [
-    'to' => '08123456789',
-    'caption' => 'Berikut surat undangan resmi.'
-]);
-
-if ($response->successful()) {
-    $result = $response->json();
-}
-```
-
----
-
 ### 2. Integrasi JavaScript / Node.js
-
 ```javascript
-import fetch from 'node-fetch';
-
 async function sendOtp(phone, otp) {
   const response = await fetch('http://127.0.0.1:3001/send-otp', {
     method: 'POST',
@@ -573,51 +349,26 @@ async function sendOtp(phone, otp) {
 }
 ```
 
----
-
 ### 3. Integrasi Python
-
 ```python
 import requests
 
-def send_bulk_notifications(recipients):
-    url = "http://127.0.0.1:3001/send-bulk"
+def send_otp(phone, otp):
+    url = "http://127.0.0.1:3001/send-otp"
     headers = {
         "Content-Type": "application/json",
         "x-api-key": "gw_rahasia_anda"
     }
-    payload = {
-        "delay_ms": 1500,
-        "recipients": recipients
-    }
-    
+    payload = {"phone": phone, "otp": otp, "app_name": "Portal Layanan"}
+
     response = requests.post(url, json=payload, headers=headers)
     return response.json()
 ```
 
----
-
 ### 4. Integrasi cURL Terminal
-
-#### Kirim Pesan Teks:
 ```bash
-curl -X POST http://localhost:3001/send-message \
+curl -X POST http://localhost:3001/send-otp \
   -H "Content-Type: application/json" \
-  -H "x-api-key: gw_e73130f4cf925f837db258b868e3bff5688c810c3b79d08a94f8c0edcbc7fd95" \
-  -d '{"to": "08123456789", "message": "Tes notifikasi gateway"}'
-```
-
-#### Upload Dokumen PDF Langsung:
-```bash
-curl -X POST http://localhost:3001/send-document \
-  -H "x-api-key: gw_e73130f4cf925f837db258b868e3bff5688c810c3b79d08a94f8c0edcbc7fd95" \
-  -F "to=08123456789" \
-  -F "file=@/path/to/dokumen.pdf" \
-  -F "caption=Lampiran surat resmi"
-```
-
-#### Polling Status Job:
-```bash
-curl -X GET http://localhost:3001/jobs/job_1788191325138_59775b4e \
-  -H "x-api-key: gw_e73130f4cf925f837db258b868e3bff5688c810c3b79d08a94f8c0edcbc7fd95"
+  -H "x-api-key: <API_KEY_ANDA>" \
+  -d '{"phone": "08123456789", "otp": "748192", "app_name": "Portal Layanan"}'
 ```

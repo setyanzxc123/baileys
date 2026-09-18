@@ -1,24 +1,24 @@
 # WhatsApp Outbound Gateway Microservice (Baileys v7)
 
-Microservice pengirim pesan WhatsApp (OTP, notifikasi, dokumen berkas, gambar, dan broadcast massal) mandiri dan agnostik, dibangun di atas **Baileys v7 (`@whiskeysockets/baileys`)** dan **Express 5**.
+Microservice pengirim pesan WhatsApp yang dikhususkan untuk **OTP dan notifikasi teks** (send-only), dibangun di atas **Baileys v7 (`@whiskeysockets/baileys`)** dan **Express 5**. Manajemen logika OTP dilakukan oleh aplikasi konsumen; gateway hanya menjadi jalur pengiriman yang aman.
 
-> 📚 **Dokumen Terkait:**
-> * 📄 **[DOKUMENTASI_API.md](./DOKUMENTASI_API.md)** — Spesifikasi detail 14 endpoint REST API headless, tabel parameter, kode error, dan contoh integrasi lengkap (PHP, JavaScript/Node.js, Python, cURL).
+> **Dokumen Terkait:**
+> * **[DOKUMENTASI_API.md](./DOKUMENTASI_API.md)** — Spesifikasi detail endpoint REST API headless, tabel parameter, kode error, dan contoh integrasi (PHP, JavaScript/Node.js, Python, cURL).
 
 ---
 
 ## Fitur Utama
 
-* 🚀 **Baileys v7 Modern:** Menggunakan arsitektur Pure ESM, dukungan penuh LIDs (*Linked Identity JIDs*), dan ACKs dinonaktifkan secara *default* (*Anti-Ban protection*).
-* ⚡ **Optimasi Performa & Memory:** Caching Signal Key Store (`makeCacheableSignalKeyStore`) dan `msgRetryCounterCache` (NodeCache) untuk efisiensi pengiriman dan perlindungan disk I/O.
-* 📦 **Asynchronous Job Queue (`POST /send-bulk`):** Respons instan `202 Accepted` non-blocking dengan `job_id`, anti-spam jitter delay terkalibrasi, serta endpoint pelacakan progres `GET /jobs/:job_id`.
-* 👥 **Dukungan Personal & Grup WhatsApp:** Normalisasi otomatis format nomor ponsel (`08xxx`, `628xxx`) dan ID Grup WhatsApp (`xxx@g.us`).
-* 📁 **Direct Media Upload & Streaming:** Mengirimkan berkas PDF dokumen (maks 25MB) dan gambar (maks 10MB) baik via URL publik maupun direct file upload (`multipart/form-data`).
-* 🛡️ **Outbox Buffering & Resilient Socket:** Menahan pesan keluar sesaat ketika socket sedang *reconnecting* singkat (5 detik) untuk mencegah kegagalan 503 yang tidak perlu.
-* 🔒 **REST API Terproteksi:** Autentikasi API Key aman (*timing-safe*) via header `x-api-key` atau `Authorization: Bearer <token>`.
-* 🚦 **Rate Limiting & Anti-Spam:** Jaring pengaman limit IP, dedup OTP per nomor (cooldown 60 detik, maks 5/jam), serta proteksi payload size.
-* 🧹 **Housekeeping Sesi Otomatis:** Pembersihan file pre-key usang secara berkala menjaga ukuran direktori sesi tetap ringkas.
-* 📊 **Monitoring & Health Check:** Endpoint `GET /health` menyertakan info *uptime* dan penggunaan memori RAM Heap Node.js.
+* **Baileys v7 Modern:** Arsitektur Pure ESM, dukungan penuh LIDs (*Linked Identity JIDs*), dan ACKs dinonaktifkan secara *default* (*Anti-Ban protection*).
+* **Optimasi Performa & Memory:** Caching Signal Key Store (`makeCacheableSignalKeyStore`) dan `msgRetryCounterCache` (NodeCache) untuk efisiensi pengiriman dan perlindungan disk I/O.
+* **Proteksi Anti-Restriction:** Circuit breaker bertingkat untuk sinyal 463/tctoken, kuota pengirim sliding-window (per jam & per hari), pre-warm privacy token (tcToken) sebelum kirim 1:1, dan penolakan kirim ke nomor tak terdaftar.
+* **Rotasi Template OTP:** Empat template bawaan berbahasa Indonesia dengan spintax dan kode referensi unik (`Ref: #XXXXX`) agar hash pesan selalu berbeda.
+* **Server ACK Await:** Respons HTTP dapat menunggu konfirmasi server WhatsApp (centang 1) sebelum dinyatakan sukses.
+* **Target Personal Saja:** Normalisasi format nomor (`08xxx`, `628xxx`); nomor grup dan format lain ditolak untuk menjaga reputasi akun.
+* **REST API Terproteksi:** Autentikasi API Key aman (*timing-safe*) via header `x-api-key` atau `Authorization: Bearer <token>`.
+* **Rate Limiting & Anti-Spam:** Jaring pengaman limit IP, dedup OTP per nomor (cooldown 60 detik, maks 5/jam), serta proteksi payload size.
+* **Housekeeping Sesi Otomatis:** Pembersihan file pre-key usang secara berkala menjaga ukuran direktori sesi tetap ringkas.
+* **Monitoring & Health Check:** Endpoint `GET /health` menyertakan info *uptime* dan penggunaan memori RAM Heap Node.js.
 
 ---
 
@@ -42,20 +42,16 @@ SERVICE_NAME=WhatsApp Gateway
 API_KEY=ubah-dengan-kunci-rahasia-yang-panjang
 SESSION_DIR=./sessions/primary
 LOG_LEVEL=warn
-CORS_ALLOWED_ORIGINS=*
 
 # Rate limiting
 RATE_LIMIT_SEND_PER_MINUTE=60
 RATE_LIMIT_PAIR_PER_MINUTE=5
 OTP_COOLDOWN_SECONDS=60
 OTP_MAX_PER_PHONE_PER_HOUR=5
-BULK_MAX_RECIPIENTS=100
-BULK_MIN_DELAY_MS=1000
-BULK_DEFAULT_DELAY_MS=1500
 TRUST_PROXY=false
 ```
 
-> ⚠️ **`API_KEY` wajib diisi.** Server menolak berjalan (*fail-fast*) tanpa kunci. Buat kunci kuat dengan:
+> **`API_KEY` wajib diisi.** Server menolak berjalan (*fail-fast*) tanpa kunci. Buat kunci kuat dengan:
 > ```bash
 > node -e "console.log('gw_' + require('crypto').randomBytes(32).toString('hex'))"
 > ```
@@ -88,13 +84,13 @@ curl -X POST http://localhost:3001/pair-code \
   -H "x-api-key: $API_KEY_ANDA" \
   -d '{"phone": "081234567890"}'
 ```
-Buka WhatsApp di HP ➔ **Perangkat Tertaut ➔ Tautkan dengan nomor telepon saja** ➔ Masukkan kode 8 digit.
+Buka WhatsApp di HP: **Perangkat Tertaut**, pilih **Tautkan dengan nomor telepon saja**, lalu masukkan kode 8 digit.
 
 **Metode 2 — QR Code (JSON Data URL):**
 ```bash
 curl http://localhost:3001/qr/raw -H "x-api-key: $API_KEY_ANDA"
 ```
-Render nilai `qr_data_url` pada tag `<img>` di panel admin Anda, lalu pindai melalui HP: **Perangkat Tertaut ➔ Tautkan Perangkat**.
+Render nilai `qr_data_url` pada tag `<img>` di panel admin Anda, lalu pindai melalui HP: **Perangkat Tertaut**, pilih **Tautkan Perangkat**.
 
 ---
 
@@ -106,20 +102,15 @@ Semua endpoint kecuali `GET /` dan `GET /health` dilindungi oleh API Key via hea
 |---|---|---|
 | `GET` | `/` | Service Discovery & Metadata gateway (Public) |
 | `GET` | `/health` | Health check, Uptime, & RAM Heap Memory metrics (Public) |
-| `GET` | `/status` | Cek kondisi koneksi WhatsApp & metadata akun (Protected) |
+| `GET` | `/status` | Cek kondisi koneksi WhatsApp, circuit breaker, & kuota pengirim (Protected) |
 | `GET` | `/qr/raw` | QR pairing Data URL JSON untuk dashboard admin (Protected) |
 | `POST` | `/pair-code` | Request 8-digit Pairing Code tanpa kamera (Protected) |
 | `POST` | `/send-otp` | Kirim kode OTP format standar / custom template (Protected) |
-| `POST` | `/send-message` | Kirim pesan teks bebas ke nomor personal atau Grup `@g.us` (Protected) |
-| `POST` | `/send-document` | Kirim dokumen PDF via URL publik atau direct multipart upload (Protected) |
-| `POST` | `/send-image` | Kirim gambar via URL publik atau direct multipart upload (Protected) |
-| `POST` | `/send-bulk` | Antrean broadcast massal non-blocking `202 Accepted` (Protected) |
-| `GET` | `/jobs/:job_id` | Cek progres dan riwayat pengiriman background job (Protected) |
-| `POST` | `/check-number` | Validasi apakah nomor HP terdaftar di WhatsApp (Protected) |
+| `POST` | `/send-message` | Kirim pesan teks bebas ke nomor personal (Protected) |
 | `POST` | `/restart` | Restart koneksi socket tanpa menghapus sesi login (Protected) |
 | `POST` | `/logout` | Logout sesi & bersihkan storage kredensial (Protected) |
 
-> 📖 Untuk contoh JSON request/response lengkap, silakan buka **[DOKUMENTASI_API.md](./DOKUMENTASI_API.md)**.
+> Untuk contoh JSON request/response lengkap, silakan buka **[DOKUMENTASI_API.md](./DOKUMENTASI_API.md)**.
 
 ---
 
@@ -140,14 +131,10 @@ Folder `sessions/` menyimpan kunci enkripsi Signal Protocol hasil pairing.
 
 ---
 
-## Pengujian Otomatis (Automated Smoke Tests)
-
-Test suite integrasi memverifikasi seluruh lapisan Express, middleware keamanan, rate limiter, outbox buffer, dan katalog routing:
+## Verifikasi
 
 ```bash
-# Terminal 1: jalankan gateway
-npm start
-
-# Terminal 2: jalankan test suite
-npm test
+npm run lint      # ESLint (flat config)
+npm run test:unit # Unit test OTP template
+npm test          # Smoke test integrasi (butuh gateway berjalan)
 ```

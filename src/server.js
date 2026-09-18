@@ -1,5 +1,4 @@
 import express from 'express';
-import cors from 'cors';
 import { config } from './config/app.js';
 import { requestLogger } from './middlewares/requestLogger.js';
 import { notFoundHandler, errorHandler } from './middlewares/errorHandler.js';
@@ -24,13 +23,7 @@ if (config.trustProxy) {
   app.set('trust proxy', 1);
 }
 
-const corsOptions = config.corsAllowedOrigins === '*'
-  ? { origin: '*' }
-  : { origin: config.corsAllowedOrigins };
-
-app.use(cors(corsOptions));
-app.use(express.json({ limit: '20mb' }));
-app.use(express.urlencoded({ extended: true, limit: '20mb' }));
+app.use(express.json({ limit: '64kb' }));
 app.use(requestLogger);
 
 app.use(routes);

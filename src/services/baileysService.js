@@ -14,10 +14,9 @@ import { Boom } from '@hapi/boom';
 import NodeCache from '@cacheable/node-cache';
 import QRCode from 'qrcode';
 import { config } from '../config/app.js';
-import { DEFAULT_DOC_NAME, DEFAULT_DOC_MIMETYPE } from '../config/constants.js';
 import { sessionService } from './sessionService.js';
 import { logger } from '../utils/logger.js';
-import { cleanPhoneNumber, normalizeJid, isGroupJid } from '../utils/jidHelper.js';
+import { cleanPhoneNumber, normalizeJid } from '../utils/jidHelper.js';
 import { isTcTokenExpired, TC_TOKEN_INDEX_KEY } from '../utils/tcTokenHelper.js';
 import { createDeliveryGuard } from '../utils/deliveryGuard.js';
 import { createSenderRateLimiter } from '../utils/senderRateLimiter.js';
@@ -327,32 +326,6 @@ export class BaileysService {
     return false;
   }
 
-  async checkNumber(phone) {
-    const isConnected = await this.waitForConnection(5000);
-    if (!isConnected || !this.sock) {
-      throw new Error('WhatsApp Gateway belum terhubung.');
-    }
-
-    const clean = cleanPhoneNumber(phone);
-    if (!clean) {
-      throw new Error(`Nomor telepon '${phone}' tidak valid.`);
-    }
-
-    try {
-      const results = await this.sock.onWhatsApp(clean);
-      const match = Array.isArray(results) && results.length > 0 ? results[0] : null;
-
-      return {
-        exists: !!match?.exists,
-        phone: clean,
-        jid: match?.jid ? jidNormalizedUser(match.jid) : null,
-      };
-    } catch (error) {
-      console.error(`[WA-GATEWAY] Gagal cek nomor ${phone}:`, error.message);
-      throw error;
-    }
-  }
-
   async requestPairingCode(phone) {
     if (!this.sock) {
       throw new Error('Klien WhatsApp belum diinisialisasi.');
@@ -481,11 +454,10 @@ export class BaileysService {
   async prepareRecipient(target) {
     let targetJid = normalizeJid(target);
     if (!targetJid) {
-      throw new Error(`Nomor telepon atau ID grup '${target}' tidak valid.`);
-    }
-
-    if (isGroupJid(targetJid)) {
-      return targetJid;
+      const error = new Error(`Nomor tujuan '${target}' tidak valid. Gunakan nomor pribadi WhatsApp (mis. 0812xxx atau 62812xxx).`);
+      error.code = 'WA_INVALID_TARGET';
+      error.statusCode = 422;
+      throw error;
     }
 
     try {
@@ -568,165 +540,6 @@ export class BaileysService {
       console.error(`[WA-GATEWAY] Gagal kirim pesan ke ${phone}:`, error.message);
       throw error;
     }
-  }
-
-  async sendDocument(phone, source, options = {}) {
-    this.assertSendAllowed();
-    const isConnected = await this.waitForConnection(5000);
-    if (!isConnected || !this.sock) {
-      throw new Error('WhatsApp Gateway belum terhubung. Silakan scan QR Code terlebih dahulu.');
-    }
-
-    if (!source || (typeof source !== 'string' && !Buffer.isBuffer(source))) {
-      throw new Error('Parameter document URL atau buffer wajib disertakan.');
-    }
-
-    const jid = await this.prepareRecipient(phone);
-
-    const fileName = options.fileName || options.filename || DEFAULT_DOC_NAME;
-    const mimetype = options.mimetype || DEFAULT_DOC_MIMETYPE;
-    const caption = options.caption || '';
-    const waitForAck = options.waitForAck !== undefined ? Boolean(options.waitForAck) : config.serverAck.enabled;
-    const timeoutMs = options.ackTimeoutMs ? Number(options.ackTimeoutMs) : config.serverAck.timeoutMs;
-    const messageId = options.messageId || generateMessageIDV2(this.sock.user?.id);
-
-    let ackPromise = null;
-    if (waitForAck) {
-      ackPromise = this.waitForServerAck(messageId, timeoutMs);
-    }
-
-    try {
-      const documentPayload = Buffer.isBuffer(source) ? source : { url: source };
-      const payload = {
-        document: documentPayload,
-        mimetype,
-        fileName,
-      };
-
-      if (caption.trim() !== '') {
-        payload.caption = caption.trim();
-      }
-
-      const response = await this.sock.sendMessage(jid, payload, { ...options, messageId });
-
-      let ackResult = null;
-      if (ackPromise) {
-        ackResult = await ackPromise;
-      }
-
-      return {
-        success: true,
-        messageId: response?.key?.id || messageId,
-        phone: jid.split('@')[0],
-        fileName,
-        timestamp: response?.messageTimestamp || Math.floor(Date.now() / 1000),
-        server_ack: ackResult ? true : undefined,
-        ack_elapsed_ms: ackResult?.ackElapsedMs,
-      };
-    } catch (error) {
-      this.cancelPendingAck(messageId);
-      console.error(`[WA-GATEWAY] Gagal kirim dokumen ke ${phone}:`, error.message);
-      throw error;
-    }
-  }
-
-  async sendImage(phone, source, caption = '', options = {}) {
-    this.assertSendAllowed();
-    const isConnected = await this.waitForConnection(5000);
-    if (!isConnected || !this.sock) {
-      throw new Error('WhatsApp Gateway belum terhubung. Silakan scan QR Code terlebih dahulu.');
-    }
-
-    if (!source || (typeof source !== 'string' && !Buffer.isBuffer(source))) {
-      throw new Error('Parameter image URL atau buffer wajib disertakan.');
-    }
-
-    const jid = await this.prepareRecipient(phone);
-    const waitForAck = options.waitForAck !== undefined ? Boolean(options.waitForAck) : config.serverAck.enabled;
-    const timeoutMs = options.ackTimeoutMs ? Number(options.ackTimeoutMs) : config.serverAck.timeoutMs;
-    const messageId = options.messageId || generateMessageIDV2(this.sock.user?.id);
-
-    let ackPromise = null;
-    if (waitForAck) {
-      ackPromise = this.waitForServerAck(messageId, timeoutMs);
-    }
-
-    try {
-      const imagePayload = Buffer.isBuffer(source) ? source : { url: source };
-      const payload = {
-        image: imagePayload,
-      };
-
-      if (caption && typeof caption === 'string' && caption.trim() !== '') {
-        payload.caption = caption.trim();
-      }
-
-      const response = await this.sock.sendMessage(jid, payload, { ...options, messageId });
-
-      let ackResult = null;
-      if (ackPromise) {
-        ackResult = await ackPromise;
-      }
-
-      return {
-        success: true,
-        messageId: response?.key?.id || messageId,
-        phone: jid.split('@')[0],
-        timestamp: response?.messageTimestamp || Math.floor(Date.now() / 1000),
-        server_ack: ackResult ? true : undefined,
-        ack_elapsed_ms: ackResult?.ackElapsedMs,
-      };
-    } catch (error) {
-      this.cancelPendingAck(messageId);
-      console.error(`[WA-GATEWAY] Gagal kirim gambar ke ${phone}:`, error.message);
-      throw error;
-    }
-  }
-
-  async sendBulk(recipients, defaultDelayMs = config.bulk.defaultDelayMs) {
-    const isConnected = await this.waitForConnection(5000);
-    if (!isConnected || !this.sock) {
-      throw new Error('WhatsApp Gateway belum terhubung.');
-    }
-
-    if (!Array.isArray(recipients) || recipients.length === 0) {
-      throw new Error("Parameter 'recipients' harus berupa array yang tidak kosong.");
-    }
-
-    const results = [];
-    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-    for (let i = 0; i < recipients.length; i++) {
-      const item = recipients[i];
-      const phone = item.phone || item.no_wa;
-      const message = item.message || item.text;
-
-      try {
-        if (!phone || !message) {
-          results.push({ phone: phone || null, success: false, error: 'Nomor atau pesan kosong' });
-          continue;
-        }
-
-        const res = await this.sendMessage(phone, message);
-        results.push({ phone: res.phone, success: true, messageId: res.messageId });
-      } catch (err) {
-        results.push({ phone, success: false, error: err.message });
-      }
-
-      if (i < recipients.length - 1) {
-        const jitter = defaultDelayMs + Math.floor(Math.random() * 800);
-        await sleep(jitter);
-      }
-    }
-
-    const successfulCount = results.filter((r) => r.success).length;
-
-    return {
-      total: recipients.length,
-      success_count: successfulCount,
-      failed_count: recipients.length - successfulCount,
-      results,
-    };
   }
 
   async restart() {

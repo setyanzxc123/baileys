@@ -36,7 +36,7 @@ test('GET / — service discovery mengembalikan katalog endpoint', async () => {
   assert.strictEqual(res.status, 200);
   assert.strictEqual(data.engine, 'Baileys v7');
   assert.strictEqual(data.status, 'running');
-  for (const key of ['send_otp', 'send_document', 'send_image', 'send_bulk', 'get_job']) {
+  for (const key of ['send_otp', 'send_message']) {
     assert.ok(data.endpoints?.[key], `endpoint '${key}' hilang dari discovery`);
   }
 });
@@ -55,10 +55,10 @@ test('POST /send-otp tanpa API key — ditolak 401', async () => {
   assert.strictEqual(res.status, 401);
 });
 
-test('POST /send-document dengan API key salah — ditolak 401', async () => {
+test('POST /send-message dengan API key salah — ditolak 401', async () => {
   const res = await jsonPost(
-    '/send-document',
-    { phone: '08123456789', url: 'https://example.com/doc.pdf' },
+    '/send-message',
+    { phone: '08123456789', message: 'tes' },
     { 'x-api-key': 'wrong_key' }
   );
   assert.strictEqual(res.status, 401);
@@ -109,54 +109,6 @@ test('POST /send-otp tanpa parameter otp — 422', async () => {
   assert.strictEqual(res.status, 422);
 });
 
-test('POST /send-document tanpa file dan tanpa document_url — 422', async () => {
-  const res = await jsonPost('/send-document', { phone: '08123456789' }, { 'x-api-key': API_KEY });
-  assert.strictEqual(res.status, 422);
-});
-
-test('POST /send-image tanpa file dan tanpa image_url — 422', async () => {
-  const res = await jsonPost('/send-image', { phone: '08123456789' }, { 'x-api-key': API_KEY });
-  assert.strictEqual(res.status, 422);
-});
-
-test('POST /send-bulk dengan array kosong — 422', async () => {
-  const res = await jsonPost('/send-bulk', { recipients: [] }, { 'x-api-key': API_KEY });
-  assert.strictEqual(res.status, 422);
-});
-
-test('POST /send-bulk melebihi batas penerima — 422 BULK_TOO_MANY_RECIPIENTS', async () => {
-  const configured = Number(process.env.BULK_MAX_RECIPIENTS);
-  const cap = Number.isFinite(configured) && configured > 0 ? Math.floor(configured) : 100;
-  const recipients = Array.from({ length: cap + 1 }, () => ({ phone: '08123456789', message: 'tes' }));
-  const res = await jsonPost('/send-bulk', { recipients }, { 'x-api-key': API_KEY });
-  const data = await res.json();
-  assert.strictEqual(res.status, 422);
-  assert.strictEqual(data.code, 'BULK_TOO_MANY_RECIPIENTS');
-});
-
-test('POST /send-bulk delay_ms di bawah floor anti-spam — 422 BULK_DELAY_TOO_SHORT', async () => {
-  const res = await jsonPost(
-    '/send-bulk',
-    { recipients: [{ phone: '08123456789', message: 'tes' }], delay_ms: 50 },
-    { 'x-api-key': API_KEY }
-  );
-  const data = await res.json();
-  assert.strictEqual(res.status, 422);
-  assert.strictEqual(data.code, 'BULK_DELAY_TOO_SHORT');
-});
-
-test('GET /jobs/:job_id tanpa API key — ditolak 401', async () => {
-  const res = await fetch(`${BASE_URL}/jobs/job_test_123`);
-  assert.strictEqual(res.status, 401);
-});
-
-test('GET /jobs/:job_id id tidak ditemukan — 404 JOB_NOT_FOUND', async () => {
-  const res = await fetch(`${BASE_URL}/jobs/job_not_exist`, { headers: { 'x-api-key': API_KEY } });
-  const data = await res.json();
-  assert.strictEqual(res.status, 404);
-  assert.strictEqual(data.code, 'JOB_NOT_FOUND');
-});
-
 test('POST /send-otp saat gateway offline — fast-fail 503 WA_GATEWAY_OFFLINE', async () => {
   const statusRes = await fetch(`${BASE_URL}/status`, { headers: { 'x-api-key': API_KEY } });
   const status = await statusRes.json();
@@ -169,48 +121,6 @@ test('POST /send-otp saat gateway offline — fast-fail 503 WA_GATEWAY_OFFLINE',
   }
 
   const res = await jsonPost('/send-otp', { phone: samplePhone(), otp: '123456' }, { 'x-api-key': API_KEY });
-  const data = await res.json();
-  assert.strictEqual(res.status, 503);
-  assert.strictEqual(data.code, 'WA_GATEWAY_OFFLINE');
-});
-
-test('POST /send-bulk saat gateway offline — fast-fail 503 WA_GATEWAY_OFFLINE', async () => {
-  const statusRes = await fetch(`${BASE_URL}/status`, { headers: { 'x-api-key': API_KEY } });
-  const status = await statusRes.json();
-
-  if (status.data?.connected) {
-    return {
-      skipped: true,
-      reason: 'gateway sedang online — fast-fail offline dilewati',
-    };
-  }
-
-  const res = await jsonPost(
-    '/send-bulk',
-    { recipients: [{ phone: samplePhone(), message: 'tes' }] },
-    { 'x-api-key': API_KEY }
-  );
-  const data = await res.json();
-  assert.strictEqual(res.status, 503);
-  assert.strictEqual(data.code, 'WA_GATEWAY_OFFLINE');
-});
-
-test('POST /send-message ke grup WhatsApp (@g.us) saat gateway offline — fast-fail 503 WA_GATEWAY_OFFLINE', async () => {
-  const statusRes = await fetch(`${BASE_URL}/status`, { headers: { 'x-api-key': API_KEY } });
-  const status = await statusRes.json();
-
-  if (status.data?.connected) {
-    return {
-      skipped: true,
-      reason: 'gateway sedang online — fast-fail offline dilewati',
-    };
-  }
-
-  const res = await jsonPost(
-    '/send-message',
-    { to: '120363023456789012@g.us', message: 'tes grup' },
-    { 'x-api-key': API_KEY }
-  );
   const data = await res.json();
   assert.strictEqual(res.status, 503);
   assert.strictEqual(data.code, 'WA_GATEWAY_OFFLINE');
