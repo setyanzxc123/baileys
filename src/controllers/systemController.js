@@ -7,7 +7,6 @@ export const getRootDiscovery = (req, res) => {
     version: '1.0.0',
     engine: 'Baileys v7',
     status: 'running',
-    whatsapp: waClient.getStatus(),
     endpoints: {
       status: 'GET /status (Protected)',
       qr_raw: 'GET /qr/raw (Protected)',
@@ -22,7 +21,6 @@ export const getRootDiscovery = (req, res) => {
 };
 
 export const getHealth = (req, res) => {
-  const wa = waClient.getStatus();
   const mem = process.memoryUsage();
 
   return res.json({
@@ -33,7 +31,9 @@ export const getHealth = (req, res) => {
       rss_mb: (mem.rss / 1024 / 1024).toFixed(1),
       heap_used_mb: (mem.heapUsed / 1024 / 1024).toFixed(1),
     },
-    whatsapp: wa,
+    whatsapp: {
+      connected: waClient.getStatus().connected,
+    },
   });
 };
 

@@ -9,6 +9,7 @@ const parsePositiveInt = (value, fallback) => {
 
 export const config = {
   port: parsePositiveInt(process.env.PORT, 3001),
+  host: process.env.HOST || '127.0.0.1',
   apiKey: process.env.API_KEY || '',
   autostartWa: process.env.WA_AUTOSTART !== 'false',
   sessionDir: process.env.SESSION_DIR || './sessions/primary',

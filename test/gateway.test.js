@@ -268,6 +268,19 @@ test('GET /status menampilkan konfigurasi server ack', async () => {
   assert.strictEqual(typeof data.data.server_ack.pending_acks, 'number');
 });
 
+test('Endpoint publik tidak membocorkan identitas akun pengirim', async () => {
+  injectConnectedSock();
+
+  const root = await (await fetch(`${baseUrl}/`)).json();
+  assert.strictEqual(root.whatsapp, undefined);
+  assert.ok(!JSON.stringify(root).includes('628999000111'));
+
+  const health = await (await fetch(`${baseUrl}/health`)).json();
+  assert.strictEqual(health.whatsapp.connected, true);
+  assert.ok(!JSON.stringify(health).includes('628999000111'));
+  assert.ok(health.whatsapp.user === undefined);
+});
+
 test('BaileysService.sendMessage gagal via penolakan server menghasilkan 502 WA_SERVER_REJECTED', async () => {
   injectConnectedSock({
     sendMessage: async (jid, payload, opts) => {

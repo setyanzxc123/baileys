@@ -14,8 +14,8 @@ try {
   process.exit(1);
 }
 
-const server = app.listen(config.port, () => {
-  console.log(`[WA-GATEWAY] ${config.serviceName} aktif di port: ${config.port}`);
+const server = app.listen(config.port, config.host, () => {
+  console.log(`[WA-GATEWAY] ${config.serviceName} aktif di ${config.host}:${config.port}`);
   console.log(`[WA-GATEWAY] API Key: ${config.apiKey.slice(0, 6)}...`);
 
   if (config.autostartWa) {
