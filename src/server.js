@@ -14,7 +14,7 @@ if (!config.apiKey || config.apiKey.trim() === '') {
 
 try {
   sessionService.acquireLock();
-} catch (err) {
+} catch {
   process.exit(1);
 }
 

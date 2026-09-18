@@ -45,7 +45,7 @@ let condition = 'ok';
 let waOfflineSince = null;
 
 const poll = async () => {
-  let connected = null;
+  let connected;
   try {
     const res = await fetch(`${BASE_URL}/health`, { signal: AbortSignal.timeout(5000) });
     if (!res.ok) throw new Error(`/health menjawab ${res.status}`);

@@ -14,7 +14,7 @@ import { Boom } from '@hapi/boom';
 import NodeCache from '@cacheable/node-cache';
 import QRCode from 'qrcode';
 import { config } from '../config/app.js';
-import { DEFAULT_APP_NAME, DEFAULT_DOC_NAME, DEFAULT_DOC_MIMETYPE } from '../config/constants.js';
+import { DEFAULT_DOC_NAME, DEFAULT_DOC_MIMETYPE } from '../config/constants.js';
 import { sessionService } from './sessionService.js';
 import { logger } from '../utils/logger.js';
 import { cleanPhoneNumber, normalizeJid, isGroupJid } from '../utils/jidHelper.js';

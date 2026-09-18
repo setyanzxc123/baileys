@@ -7,7 +7,7 @@ import { BaileysService } from '../src/services/baileysService.js';
 import { isTcTokenExpired, TC_TOKEN_BUCKET_DURATION, TC_TOKEN_NUM_BUCKETS } from '../src/utils/tcTokenHelper.js';
 import { createDeliveryGuard } from '../src/utils/deliveryGuard.js';
 import { createSenderRateLimiter } from '../src/utils/senderRateLimiter.js';
-import { buildOtpMessage, parseSpintax } from '../src/utils/otpTemplateHelper.js';
+import { buildOtpMessage } from '../src/utils/otpTemplateHelper.js';
 
 const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3001';
 const API_KEY = process.env.API_KEY;

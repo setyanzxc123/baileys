@@ -46,7 +46,7 @@ export const buildOtpMessage = ({
   const safeExpiry = String(expiryMinutes);
 
   let selectedIndex = null;
-  let rawText = '';
+  let rawText;
 
   if (typeof template === 'string' && template.trim().length > 0) {
     rawText = template.trim();
