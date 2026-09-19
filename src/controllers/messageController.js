@@ -26,6 +26,7 @@ const resolveSendError = (res, error, fallbackCode) => {
       code: error.code || 'WA_SERVER_REJECTED',
       message: error.message,
       server_error_code: error.serverErrorCode || null,
+      message_id: error.messageId || null,
     });
   }
   if (error?.statusCode === 504) {
@@ -33,6 +34,7 @@ const resolveSendError = (res, error, fallbackCode) => {
       status: 'error',
       code: error.code || 'WA_SERVER_ACK_TIMEOUT',
       message: error.message,
+      message_id: error.messageId || null,
     });
   }
   if (error?.statusCode === 503) {
@@ -40,6 +42,7 @@ const resolveSendError = (res, error, fallbackCode) => {
       status: 'error',
       code: error.code || 'WA_GATEWAY_OFFLINE',
       message: error.message,
+      message_id: error.messageId || null,
     });
   }
   const isOffline = !waClient.getStatus().connected;

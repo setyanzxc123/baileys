@@ -93,6 +93,7 @@ test('POST /send-otp server ack timeout menghasilkan 504 WA_SERVER_ACK_TIMEOUT',
 
   assert.strictEqual(res.status, 504);
   assert.strictEqual(data.code, 'WA_SERVER_ACK_TIMEOUT');
+  assert.ok(data.message_id, '504 harus menyertakan message_id untuk dedup konsumen');
 });
 
 test('POST /send-otp ke nomor tidak terdaftar dihentikan 422 WA_NUMBER_NOT_REGISTERED', async () => {
@@ -297,4 +298,80 @@ test('BaileysService.sendMessage gagal via penolakan server menghasilkan 502 WA_
   assert.strictEqual(res.status, 502);
   assert.strictEqual(data.code, 'WA_SERVER_REJECTED');
   assert.strictEqual(data.server_error_code, '463');
+  assert.ok(data.message_id, '502 harus menyertakan message_id');
+});
+
+test('Idempotency-Key sama membalas respons tersimpan tanpa kirim ulang', async () => {
+  let sendCount = 0;
+  injectConnectedSock({
+    sendMessage: async (jid, payload, opts) => {
+      sendCount++;
+      return { key: { id: opts.messageId }, messageTimestamp: 1789000000 };
+    },
+  });
+
+  const key = `itest-${Date.now()}`;
+  const headers = { 'Content-Type': 'application/json', 'x-api-key': API_KEY, 'Idempotency-Key': key };
+
+  const first = await jsonPost('/send-message', { phone: uniquePhone(), message: 'tes', wait_for_ack: false }, headers);
+  const firstBody = await first.json();
+  assert.strictEqual(first.status, 200);
+  assert.strictEqual(first.headers.get('idempotent-replay'), null);
+  assert.strictEqual(sendCount, 1);
+
+  const replay = await jsonPost('/send-message', { phone: uniquePhone(), message: 'beda', wait_for_ack: false }, headers);
+  const replayBody = await replay.json();
+
+  assert.strictEqual(replay.status, 200);
+  assert.strictEqual(replay.headers.get('idempotent-replay'), 'true');
+  assert.strictEqual(sendCount, 1, 'retry dengan key sama tidak boleh mengirim ulang');
+  assert.strictEqual(replayBody.data.messageId, firstBody.data.messageId);
+});
+
+test('Idempotency-Key berbeda melakukan kirim baru', async () => {
+  let sendCount = 0;
+  injectConnectedSock({
+    sendMessage: async (jid, payload, opts) => {
+      sendCount++;
+      return { key: { id: opts.messageId }, messageTimestamp: 1789000000 };
+    },
+  });
+
+  const headersA = { 'Content-Type': 'application/json', 'x-api-key': API_KEY, 'Idempotency-Key': `a-${Date.now()}` };
+  const headersB = { 'Content-Type': 'application/json', 'x-api-key': API_KEY, 'Idempotency-Key': `b-${Date.now()}` };
+
+  await jsonPost('/send-message', { phone: uniquePhone(), message: 'tes', wait_for_ack: false }, headersA);
+  await jsonPost('/send-message', { phone: uniquePhone(), message: 'tes', wait_for_ack: false }, headersB);
+
+  assert.strictEqual(sendCount, 2);
+});
+
+test('Retry /send-otp dengan key sama tetap sukses meski nomor sedang cooldown', async () => {
+  injectConnectedSock();
+  const phone = uniquePhone();
+  const key = `otptest-${Date.now()}`;
+  const headers = { 'Content-Type': 'application/json', 'x-api-key': API_KEY, 'Idempotency-Key': key };
+  const body = { phone, otp: '999999', wait_for_ack: false };
+
+  const first = await jsonPost('/send-otp', body, headers);
+  assert.strictEqual(first.status, 200);
+
+  const replay = await jsonPost('/send-otp', body, headers);
+  assert.strictEqual(replay.status, 200, 'replay tidak boleh terkena OTP_COOLDOWN');
+  assert.strictEqual(replay.headers.get('idempotent-replay'), 'true');
+});
+
+test('Respons error turut di-replay untuk key yang sama', async () => {
+  const key = `errtest-${Date.now()}`;
+  const headers = { 'Content-Type': 'application/json', 'x-api-key': API_KEY, 'Idempotency-Key': key };
+
+  waClient.status = 'disconnected';
+  waClient.sock = null;
+  const first = await jsonPost('/send-message', { phone: uniquePhone(), message: 'tes' }, headers);
+  assert.strictEqual(first.status, 503);
+
+  injectConnectedSock();
+  const replay = await jsonPost('/send-message', { phone: uniquePhone(), message: 'tes', wait_for_ack: false }, headers);
+  assert.strictEqual(replay.status, 503, 'key sama membalas hasil percobaan pertama, bukan kirim baru');
+  assert.strictEqual(replay.headers.get('idempotent-replay'), 'true');
 });

@@ -50,6 +50,14 @@ Semua endpoint pengiriman pesan dan operasi perangkat dilindungi menggunakan **A
 
 *Catatan Keamanan*: Query string parameter `?api_key=` tidak didukung untuk mencegah kunci bocor di access log proxy dan history browser.
 
+### Pencegahan Kirim Ganda (Idempotency-Key)
+Endpoint `POST /send-otp` dan `POST /send-message` mendukung header opsional **`Idempotency-Key`**. Sertakan kunci unik untuk setiap upaya kirim (misal UUID dari sisi konsumen); bila permintaan di-retry karena timeout jaringan atau respons hilang, kirim kembali permintaan identik dengan **key yang sama** dan gateway akan membalas respons tersimpan tanpa mengirim ulang pesan.
+
+* Masa berlaku respons tersimpan: 10 menit (dapat diatur via `IDEMPOTENCY_TTL_MS`).
+* Respons yang di-replay ditandai header `Idempotent-Replay: true`.
+* Permintaan berulang dengan key sama yang masih dalam proses dibalas `409 IDEMPOTENCY_IN_PROGRESS`.
+* Gunakan key baru untuk upaya kirim baru; jangan pernah memakai ulang key dari percobaan berbeda. Respons error (misal `503`) juga tersimpan dan akan di-replay untuk key yang sama.
+
 ---
 
 ## 2. Standar Format Respons & Error Codes
@@ -85,9 +93,10 @@ Semua endpoint pengiriman pesan dan operasi perangkat dilindungi menggunakan **A
 | **429** | `OTP_COOLDOWN` | OTP ke nomor tujuan baru saja dikirim. Silakan tunggu jeda cooldown (default 60 detik). |
 | **429** | `OTP_HOURLY_LIMIT` | Batas maksimum pengiriman OTP per nomor per jam telah tercapai (default 5). |
 | **429** | `WA_CIRCUIT_BREAKER_OPEN` / `WA_SENDER_LIMIT` | Circuit breaker 463 aktif atau kuota pengirim harian/jam tercapai. Header `Retry-After` berisi detik tunggu. |
-| **502** | `WA_SERVER_REJECTED` | Server WhatsApp menolak pengiriman pesan (misal penolakan server 463/479). Pemicu fallback provider seketika. |
-| **504** | `WA_SERVER_ACK_TIMEOUT` | Batas waktu menunggu konfirmasi penerimaan server WhatsApp (Server ACK / centang 1) terlampaui. Pesan kemungkinan sudah ditulis ke socket; status akhir tidak pasti. Konsumen disarankan menunggu, bukan langsung mengirim ulang OTP yang sama. |
-| **503** | `WA_GATEWAY_OFFLINE` | Socket WhatsApp belum terhubung / sesi logout. |
+| **409** | `IDEMPOTENCY_IN_PROGRESS` | Permintaan dengan `Idempotency-Key` yang sama sedang diproses. |
+| **502** | `WA_SERVER_REJECTED` | Server WhatsApp menolak pengiriman pesan (misal penolakan server 463/479). Respons menyertakan `message_id`. Pemicu fallback provider seketika. |
+| **504** | `WA_SERVER_ACK_TIMEOUT` | Batas waktu menunggu konfirmasi penerimaan server WhatsApp (Server ACK / centang 1) terlampaui. Pesan kemungkinan sudah ditulis ke socket; status akhir tidak pasti. Respons menyertakan `message_id` untuk dedup. Konsumen disarankan menunggu atau retry dengan `Idempotency-Key` yang sama, bukan mengirim OTP baru. |
+| **503** | `WA_GATEWAY_OFFLINE` | Socket WhatsApp belum terhubung / sesi logout. Respons menyertakan `message_id` bila pesan sempat masuk antrean ack sebelum socket putus. |
 | **500** | `SEND_FAILED` | Kesalahan internal saat mengirimkan pesan ke jaringan WhatsApp. |
 
 ---
