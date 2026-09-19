@@ -1,6 +1,7 @@
 # Production Readiness Review
 
 Tanggal review: 2026-09-01
+Status resolusi: 2026-09-19 (lihat bagian "Status Resolusi" di bagian bawah dokumen)
 Scope: seluruh kode gateway (src/, test/, konfigurasi) dengan use case khusus pengiriman pesan keluar (notification dan OTP).
 Metode: telaah kode lengkap, verifikasi live server, dan eksekusi test suite.
 
@@ -116,3 +117,20 @@ Kuota default 30 per jam dan 200 per hari sengaja konservatif untuk warm-up. Set
 4. P2 F-04: cache onWhatsApp.
 5. P2 F-03: evict job selesai, dokumentasi batasan bulk.
 6. P3 F-05, F-06, F-07: kebersihan kode.
+
+## Status Resolusi (2026-09-19)
+
+Scope gateway dipangkas menjadi send-only OTP (konsumen API berjalan di mesin yang sama), dan seluruh temuan dituntaskan melalui fitur gw-011 sampai gw-018:
+
+| ID | Status | Penyelesaian |
+|----|--------|--------------|
+| F-01 | Selesai (gw-014) | Kuota pengirim kini dikonsumsi tepat sebelum stanza ditulis (`consumeSendQuota`), sehingga percobaan saat offline, nomor tidak valid/tak terdaftar, dan breaker terbuka tidak membakar kuota. Cooldown dan limit per jam OTP di-refund saat kirim gagal; 504 sengaja tidak di-refund untuk mencegah OTP dobel. Dibuktikan lewat 5 unit test mock. |
+| F-02 | Selesai (gw-015) | Bind default `127.0.0.1` (override via `HOST`) karena konsumen di mesin yang sama; CORS dihapus (gw-012). `GET /health` hanya mengekspos `whatsapp.connected` untuk monitor PM2; `GET /` tidak lagi menyertakan status klien. Nomor pengirim, kuota, dan breaker hanya terlihat via `GET /status` terproteksi. |
+| F-03 | Moot (gw-012) | Antrean bulk dihapus bersama endpoint bulk, sehingga tidak ada lagi job in-memory yang hilang saat restart. |
+| F-04 | Selesai (gw-017) | Resolusi onWhatsApp di-cache per nomor (positif 3 jam, negatif 5 menit), menghilangkan query berulang dan memangkas latensi kirim. |
+| F-05 | Selesai (gw-018) | `uncaughtException` kini memanggil `process.exit(1)` agar PM2 me-restart dari kondisi bersih. |
+| F-06 | Moot (gw-012) | `BaileysService.sendBulk` dan seluruh jalur bulk dihapus. |
+| F-07 | Selesai (gw-018) | Seluruh logging dikonsolidasi ke pino; logger internal Baileys dipisah via `BAILEYS_LOG_LEVEL` (default silent), log aplikasi default info. |
+| F-08 | Diperkuat (gw-013) | Test suite utama (`npm test`) kini berjalan penuh dengan mock sock tanpa koneksi WhatsApp; test smoke berisiko kirim nyata dihapus sehingga insiden 2026-09-01 tidak dapat terulang. |
+
+Tambahan reliabilitas di luar daftar temuan: idempotency `Idempotency-Key` pada `/send-otp` dan `/send-message` (gw-016) serta `message_id` pada respons error 502/503/504, sehingga retry konsumen tidak menghasilkan OTP ganda.
