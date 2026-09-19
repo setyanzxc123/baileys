@@ -258,6 +258,41 @@ test('OTP cooldown tidak di-refund saat server ack timeout (504) untuk cegah OTP
   assert.strictEqual(secondData.code, 'OTP_COOLDOWN');
 });
 
+test('Resolusi onWhatsApp di-cache sehingga nomor sama tidak di-query ulang', async () => {
+  let queryCount = 0;
+  injectConnectedSock({
+    onWhatsApp: async (phone) => {
+      queryCount++;
+      return [{ exists: true, jid: `${phone.replace(/^0/, '62')}@s.whatsapp.net` }];
+    },
+  });
+
+  const phone = uniquePhone();
+  await jsonPost('/send-message', { phone, message: 'tes', wait_for_ack: false });
+  await jsonPost('/send-message', { phone, message: 'tes dua', wait_for_ack: false });
+  await jsonPost('/send-message', { phone: uniquePhone(), message: 'nomor lain', wait_for_ack: false });
+
+  assert.strictEqual(queryCount, 2, 'kirim ulang ke nomor sama harus memakai cache');
+});
+
+test('Hasil negatif onWhatsApp di-cache singkat untuk mencegah probing berulang', async () => {
+  let queryCount = 0;
+  injectConnectedSock({
+    onWhatsApp: async () => {
+      queryCount++;
+      return [{ exists: false, jid: null }];
+    },
+  });
+
+  const phone = uniquePhone();
+  const first = await jsonPost('/send-message', { phone, message: 'tes', wait_for_ack: false });
+  const second = await jsonPost('/send-message', { phone, message: 'tes', wait_for_ack: false });
+
+  assert.strictEqual(first.status, 422);
+  assert.strictEqual(second.status, 422);
+  assert.strictEqual(queryCount, 1, 'nomor tak terdaftar tidak boleh di-probe ulang dalam TTL negatif');
+});
+
 test('GET /status menampilkan konfigurasi server ack', async () => {
   const res = await fetch(`${baseUrl}/status`, { headers: { 'x-api-key': API_KEY } });
   const data = await res.json();

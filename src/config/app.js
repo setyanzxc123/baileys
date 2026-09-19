@@ -37,6 +37,10 @@ export const config = {
   send: {
     composingDelayMs: parsePositiveInt(process.env.COMPOSING_DELAY_MS, 800),
   },
+  recipientCache: {
+    ttlSeconds: parsePositiveInt(process.env.RECIPIENT_CACHE_TTL_SECONDS, 10800),
+    negativeTtlSeconds: parsePositiveInt(process.env.RECIPIENT_CACHE_NEGATIVE_TTL_SECONDS, 300),
+  },
   idempotency: {
     ttlMs: parsePositiveInt(process.env.IDEMPOTENCY_TTL_MS, 600000),
     maxKeys: parsePositiveInt(process.env.IDEMPOTENCY_MAX_KEYS, 1000),

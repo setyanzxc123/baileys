@@ -42,6 +42,10 @@ export class BaileysService {
       maxPerHour: config.senderLimits.maxPerHour,
       maxPerDay: config.senderLimits.maxPerDay,
     });
+    this.recipientCache = new NodeCache({
+      stdTTL: config.recipientCache.ttlSeconds,
+      checkperiod: 300,
+    });
     this.pendingAcks = new Map();
   }
 
@@ -453,6 +457,15 @@ export class BaileysService {
     }
   }
 
+  unregisteredNumberError(clean) {
+    const error = new Error(
+      `Nomor '${clean}' tidak terdaftar di WhatsApp. Pengiriman dihentikan untuk melindungi reputasi akun pengirim.`
+    );
+    error.code = 'WA_NUMBER_NOT_REGISTERED';
+    error.statusCode = 422;
+    return error;
+  }
+
   async prepareRecipient(target) {
     let targetJid = normalizeJid(target);
     if (!targetJid) {
@@ -462,23 +475,32 @@ export class BaileysService {
       throw error;
     }
 
-    try {
-      const clean = cleanPhoneNumber(target);
-      if (clean && this.sock?.onWhatsApp) {
-        const results = await this.sock.onWhatsApp(clean);
-        const match = Array.isArray(results) && results.length > 0 ? results[0] : null;
-        if (match?.exists && match?.jid) {
-          targetJid = match.jid;
-        } else {
-          const error = new Error(`Nomor '${clean}' tidak terdaftar di WhatsApp. Pengiriman dihentikan untuk melindungi reputasi akun pengirim.`);
-          error.code = 'WA_NUMBER_NOT_REGISTERED';
-          error.statusCode = 422;
-          throw error;
+    const clean = cleanPhoneNumber(target);
+    if (clean && this.sock?.onWhatsApp) {
+      const cacheKey = `wa:${clean}`;
+      const cached = this.recipientCache.get(cacheKey);
+
+      if (cached) {
+        if (!cached.exists) {
+          throw this.unregisteredNumberError(clean);
+        }
+        targetJid = cached.jid || targetJid;
+      } else {
+        try {
+          const results = await this.sock.onWhatsApp(clean);
+          const match = Array.isArray(results) && results.length > 0 ? results[0] : null;
+          if (match?.exists && match?.jid) {
+            targetJid = match.jid;
+            this.recipientCache.set(cacheKey, { exists: true, jid: targetJid });
+          } else {
+            this.recipientCache.set(cacheKey, { exists: false }, config.recipientCache.negativeTtlSeconds);
+            throw this.unregisteredNumberError(clean);
+          }
+        } catch (error) {
+          if (error?.code === 'WA_NUMBER_NOT_REGISTERED') throw error;
+          // Fallback ke targetJid awal jika query onWhatsApp gagal karena gangguan jaringan
         }
       }
-    } catch (error) {
-      if (error?.code === 'WA_NUMBER_NOT_REGISTERED') throw error;
-      // Fallback ke targetJid awal jika query onWhatsApp gagal
     }
 
     try {
