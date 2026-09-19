@@ -13,7 +13,8 @@ export const config = {
   apiKey: process.env.API_KEY || '',
   autostartWa: process.env.WA_AUTOSTART !== 'false',
   sessionDir: process.env.SESSION_DIR || './sessions/primary',
-  logLevel: process.env.LOG_LEVEL || 'silent',
+  logLevel: process.env.LOG_LEVEL || 'info',
+  baileysLogLevel: process.env.BAILEYS_LOG_LEVEL || 'silent',
   serviceName: process.env.SERVICE_NAME || 'WhatsApp Gateway',
   trustProxy: process.env.TRUST_PROXY === 'true',
   rateLimits: {

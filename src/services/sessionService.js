@@ -51,10 +51,10 @@ export class SessionService {
         if (existingPid && existingPid !== process.pid) {
           if (this.isProcessAlive(existingPid)) {
             const errorMsg = `FATAL: Gateway sudah berjalan pada PID ${existingPid}. Hanya 1 instance yang diizinkan.`;
-            console.error(`[WA-GATEWAY] ${errorMsg}`);
+            logger.error(`[WA-GATEWAY] ${errorMsg}`);
             throw new Error(errorMsg);
           }
-          console.warn(`[WA-GATEWAY] Ditemukan stale lock dari PID ${existingPid} yang sudah mati. Membersihkan lock lama...`);
+          logger.warn(`[WA-GATEWAY] Ditemukan stale lock dari PID ${existingPid} yang sudah mati. Membersihkan lock lama...`);
         }
       } catch (err) {
         if (err.message && err.message.startsWith('FATAL:')) {
@@ -66,7 +66,7 @@ export class SessionService {
     try {
       fs.writeFileSync(lockPath, String(process.pid), { flag: 'w' });
     } catch (err) {
-      console.error('[WA-GATEWAY] Gagal menulis lockfile:', err.message);
+      logger.error('[WA-GATEWAY] Gagal menulis lockfile:', err.message);
       throw err;
     }
   }

@@ -15,7 +15,7 @@ import NodeCache from '@cacheable/node-cache';
 import QRCode from 'qrcode';
 import { config } from '../config/app.js';
 import { sessionService } from './sessionService.js';
-import { logger } from '../utils/logger.js';
+import { logger, baileysLogger } from '../utils/logger.js';
 import { cleanPhoneNumber, normalizeJid } from '../utils/jidHelper.js';
 import { isTcTokenExpired, TC_TOKEN_INDEX_KEY } from '../utils/tcTokenHelper.js';
 import { createDeliveryGuard } from '../utils/deliveryGuard.js';
@@ -29,7 +29,7 @@ export class BaileysService {
     this.qrDataUrl = null;
     this.user = null;
     this.sessionDir = config.sessionDir;
-    this.logger = logger;
+    this.logger = baileysLogger;
     this.msgRetryCounterCache = new NodeCache({ stdTTL: 300, checkperiod: 60 });
     this.reconnectAttempts = 0;
     this.maxReconnectDelay = 15000;
@@ -52,7 +52,7 @@ export class BaileysService {
   handle463Signal(source) {
     if (!config.circuitBreaker.enabled) return;
     const state = this.deliveryGuard.registerHit();
-    console.warn(
+    logger.warn(
       `[WA-GATEWAY] Sinyal 463 dari ${source}. Hit dalam jendela: ${state.hits}. Kirim dijeda sampai ${new Date(state.openUntil).toLocaleTimeString()} (breaker anti-restriction).`
     );
   }
@@ -186,7 +186,7 @@ export class BaileysService {
     try {
       const { state, saveCreds } = await useMultiFileAuthState(this.sessionDir);
 
-      console.log('[WA-GATEWAY] Menginisialisasi Baileys v7 Engine...');
+      logger.info('[WA-GATEWAY] Menginisialisasi Baileys v7 Engine...');
       this.status = 'connecting';
 
       const socket = makeWASocket({
@@ -218,10 +218,10 @@ export class BaileysService {
           try {
             this.qrDataUrl = await QRCode.toDataURL(qr);
           } catch (e) {
-            console.error('[WA-GATEWAY] Gagal membuat QR Data URL:', e.message);
+            logger.error({ err: e.message }, '[WA-GATEWAY] Gagal membuat QR Data URL');
           }
           this.status = 'qr_ready';
-          console.log('[WA-GATEWAY] QR Code siap dipindai via GET /qr/raw.');
+          logger.info('[WA-GATEWAY] QR Code siap dipindai via GET /qr/raw.');
         }
 
         if (connection === 'open') {
@@ -240,12 +240,12 @@ export class BaileysService {
             phone,
           };
 
-          console.log(`[WA-GATEWAY] WhatsApp TERHUBUNG. Nomor pengirim: +${phone}`);
+          logger.info(`[WA-GATEWAY] WhatsApp TERHUBUNG. Nomor pengirim: +${phone}`);
         }
 
         if (connection === 'close') {
           if (this.sock !== socket) {
-            console.log('[WA-GATEWAY] Event close dari socket lama diabaikan.');
+            logger.info('[WA-GATEWAY] Event close dari socket lama diabaikan.');
             return;
           }
 
@@ -266,25 +266,25 @@ export class BaileysService {
             reason: lastDisconnect?.error?.message || 'Unknown',
           };
 
-          console.warn(`[WA-GATEWAY] Koneksi terputus. Kode status: ${statusCode} (${lastDisconnect?.error?.message || 'Unknown'})`);
+          logger.warn(`[WA-GATEWAY] Koneksi terputus. Kode status: ${statusCode} (${lastDisconnect?.error?.message || 'Unknown'})`);
 
           this.destroySocket(socket);
           this.sock = null;
 
           if (isLoggedOut) {
-            console.log('[WA-GATEWAY] Sesi logout dari WhatsApp (401). Menghapus data sesi lama...');
+            logger.info('[WA-GATEWAY] Sesi logout dari WhatsApp (401). Menghapus data sesi lama...');
             sessionService.clearSession();
             this.cancelReconnectTimer();
             this.reconnectTimer = setTimeout(() => this.init(), 1000);
           } else if (isRestartRequired) {
-            console.log('[WA-GATEWAY] Restart required oleh server WhatsApp (515). Reconnecting...');
+            logger.info('[WA-GATEWAY] Restart required oleh server WhatsApp (515). Reconnecting...');
             this.cancelReconnectTimer();
             this.reconnectTimer = setTimeout(() => this.init(), 500);
           } else if (isReplaced) {
-            console.warn('[WA-GATEWAY] Koneksi digantikan oleh proses atau perangkat lain (conflict: replaced). Auto-reconnect dihentikan.');
+            logger.warn('[WA-GATEWAY] Koneksi digantikan oleh proses atau perangkat lain (conflict: replaced). Auto-reconnect dihentikan.');
             this.cancelReconnectTimer();
           } else if (isTcTokenStreamError) {
-            console.warn('[WA-GATEWAY] Stream error 463/tct dari server WhatsApp. Reconnect terkontrol tanpa restart sesi...');
+            logger.warn('[WA-GATEWAY] Stream error 463/tct dari server WhatsApp. Reconnect terkontrol tanpa restart sesi...');
             this.handle463Signal('stream error');
             this.cancelReconnectTimer();
             this.reconnectTimer = setTimeout(() => this.init(), 2000);
@@ -292,13 +292,13 @@ export class BaileysService {
             this.cancelReconnectTimer();
             const delay = Math.min(3000 * Math.pow(1.5, this.reconnectAttempts), this.maxReconnectDelay);
             this.reconnectAttempts++;
-            console.log(`[WA-GATEWAY] Mencoba menghubungkan kembali dalam ${(delay / 1000).toFixed(1)} detik (Percobaan #${this.reconnectAttempts})...`);
+            logger.info(`[WA-GATEWAY] Mencoba menghubungkan kembali dalam ${(delay / 1000).toFixed(1)} detik (Percobaan #${this.reconnectAttempts})...`);
             this.reconnectTimer = setTimeout(() => this.init(), delay);
           }
         }
       });
     } catch (err) {
-      console.error('[WA-GATEWAY] Gagal inisialisasi socket:', err.message);
+      logger.error({ err: err.message }, '[WA-GATEWAY] Gagal inisialisasi socket');
       this.status = 'disconnected';
       this.cancelReconnectTimer();
       this.reconnectTimer = setTimeout(() => this.init(), 5000);
@@ -355,7 +355,7 @@ export class BaileysService {
         instruction: 'Buka WhatsApp di HP > Perangkat Tertaut > Tautkan dengan nomor telepon saja > Masukkan kode 8 digit ini.',
       };
     } catch (error) {
-      console.error('[WA-GATEWAY] Gagal meminta Pairing Code:', error.message);
+      logger.error({ err: error.message }, '[WA-GATEWAY] Gagal meminta Pairing Code');
       throw error;
     }
   }
@@ -449,10 +449,10 @@ export class BaileysService {
       });
       await this.appendTcTokenIndex(keys, storageJid);
 
-      console.log(`[WA-GATEWAY] Privacy token (tctoken) diterbitkan untuk ${storageJid}`);
+      logger.info(`[WA-GATEWAY] Privacy token (tctoken) diterbitkan untuk ${storageJid}`);
       return 'issued';
     } catch (error) {
-      console.warn(`[WA-GATEWAY] Pre-issue privacy token gagal untuk ${jid}: ${error.message}`);
+      logger.warn(`[WA-GATEWAY] Pre-issue privacy token gagal untuk ${jid}: ${error.message}`);
       return 'failed';
     }
   }
@@ -562,7 +562,7 @@ export class BaileysService {
       };
     } catch (error) {
       this.cancelPendingAck(messageId);
-      console.error(`[WA-GATEWAY] Gagal kirim pesan ke ${phone}:`, error.message);
+      logger.error({ err: error.message, phone }, '[WA-GATEWAY] Gagal kirim pesan');
       throw error;
     }
   }
@@ -613,7 +613,7 @@ export class BaileysService {
     this.status = 'disconnected';
     this.destroySocket(socket);
 
-    console.log('[WA-GATEWAY] Koneksi WhatsApp ditutup tanpa logout.');
+    logger.info('[WA-GATEWAY] Koneksi WhatsApp ditutup tanpa logout.');
   }
 
   getStatus() {

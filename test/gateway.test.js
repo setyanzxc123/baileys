@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 process.env.API_KEY = process.env.API_KEY || 'mock-test-key';
 process.env.COMPOSING_DELAY_MS = '0';
+process.env.LOG_LEVEL = process.env.LOG_LEVEL || 'silent';
 
 const { app } = await import('../src/app.js');
 const { waClient } = await import('../src/services/baileysService.js');

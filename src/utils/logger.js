@@ -4,3 +4,7 @@ import { config } from '../config/app.js';
 export const logger = pino({
   level: config.logLevel,
 });
+
+export const baileysLogger = pino({
+  level: config.baileysLogLevel,
+});

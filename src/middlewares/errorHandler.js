@@ -1,3 +1,5 @@
+import { logger } from '../utils/logger.js';
+
 export const notFoundHandler = (req, res) => {
   return res.status(404).json({
     status: 'error',
@@ -14,7 +16,7 @@ export const errorHandler = (err, req, res, _next) => {
     : 'Terjadi kesalahan internal saat memproses permintaan.';
 
   if (!isClientError) {
-    console.error(`[HTTP] Unhandled error pada ${req.method} ${req.path}:`, err);
+    logger.error({ err, method: req.method, path: req.path }, '[HTTP] Unhandled error');
   }
 
   return res.status(status).json({

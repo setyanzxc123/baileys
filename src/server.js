@@ -2,9 +2,10 @@ import { config } from './config/app.js';
 import { app } from './app.js';
 import { waClient } from './services/baileysService.js';
 import { sessionService } from './services/sessionService.js';
+import { logger } from './utils/logger.js';
 
 if (!config.apiKey || config.apiKey.trim() === '') {
-  console.error('FATAL: API_KEY belum diatur. Gateway tidak akan dijalankan.');
+  logger.error('FATAL: API_KEY belum diatur. Gateway tidak akan dijalankan.');
   process.exit(1);
 }
 
@@ -15,12 +16,12 @@ try {
 }
 
 const server = app.listen(config.port, config.host, () => {
-  console.log(`[WA-GATEWAY] ${config.serviceName} aktif di ${config.host}:${config.port}`);
-  console.log(`[WA-GATEWAY] API Key: ${config.apiKey.slice(0, 6)}...`);
+  logger.info(`[WA-GATEWAY] ${config.serviceName} aktif di ${config.host}:${config.port}`);
+  logger.info(`[WA-GATEWAY] API Key: ${config.apiKey.slice(0, 6)}...`);
 
   if (config.autostartWa) {
     waClient.init().catch((err) => {
-      console.error('[WA-GATEWAY] Fatal error saat inisialisasi Baileys:', err);
+      logger.error({ err }, '[WA-GATEWAY] Fatal error saat inisialisasi Baileys');
     });
   }
 
@@ -32,11 +33,11 @@ const server = app.listen(config.port, config.host, () => {
 
 server.on('error', (err) => {
   if (err.code === 'EADDRINUSE') {
-    console.error(`[WA-GATEWAY] FATAL: Port ${config.port} sudah digunakan oleh proses lain.`);
+    logger.error(`[WA-GATEWAY] FATAL: Port ${config.port} sudah digunakan oleh proses lain.`);
     sessionService.releaseLock();
     process.exit(1);
   } else {
-    console.error('[WA-GATEWAY] Server error:', err);
+    logger.error({ err }, '[WA-GATEWAY] Server error');
   }
 });
 
@@ -44,33 +45,34 @@ let shuttingDown = false;
 const handleShutdown = (signal) => {
   if (shuttingDown) return;
   shuttingDown = true;
-  console.log(`[WA-GATEWAY] Menerima sinyal ${signal}. Menutup server secara aman...`);
+  logger.info(`[WA-GATEWAY] Menerima sinyal ${signal}. Menutup server secara aman...`);
 
   setTimeout(() => {
-    console.error('[WA-GATEWAY] Timeout penutupan 10 detik terlampaui. Keluar paksa.');
+    logger.error('[WA-GATEWAY] Timeout penutupan 10 detik terlampaui. Keluar paksa.');
     process.exit(1);
   }, 10000);
 
   server.closeAllConnections?.();
   server.close(() => {
-    console.log('[WA-GATEWAY] HTTP Server ditutup.');
+    logger.info('[WA-GATEWAY] HTTP Server ditutup.');
   });
 
   waClient.shutdown();
   sessionService.releaseLock();
 
   setTimeout(() => {
-    console.log('[WA-GATEWAY] Proses berhenti.');
+    logger.info('[WA-GATEWAY] Proses berhenti.');
     process.exit(0);
   }, 500);
 };
 
 process.on('unhandledRejection', (reason) => {
-  console.error('[WA-GATEWAY] Unhandled Rejection:', reason?.message || reason);
+  logger.error({ reason: reason?.message || String(reason) }, '[WA-GATEWAY] Unhandled Rejection');
 });
 
 process.on('uncaughtException', (err) => {
-  console.error('[WA-GATEWAY] Uncaught Exception:', err?.message || err);
+  logger.error({ err }, '[WA-GATEWAY] Uncaught Exception, keluar untuk pemulihan PM2');
+  process.exit(1);
 });
 
 process.on('SIGINT', () => handleShutdown('SIGINT'));
