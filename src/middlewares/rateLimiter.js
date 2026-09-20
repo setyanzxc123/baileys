@@ -1,5 +1,4 @@
 import { config } from '../config/app.js';
-import { OTP_PATTERN } from '../config/constants.js';
 import { cleanPhoneNumber } from '../utils/jidHelper.js';
 
 const sweepInterval = (windowMs) => Math.min(windowMs, 60000);
@@ -75,11 +74,11 @@ export const clientIpKey = (req) => {
   }
 };
 
-export const otpPhoneKey = (req) => {
+export const messagePhoneKey = (req) => {
   const body = req.body || {};
-  if (!body.phone || !body.otp) return null;
-  if (!OTP_PATTERN.test(String(body.otp))) return null;
-  const clean = cleanPhoneNumber(body.phone);
+  const target = body.phone || body.to || body.jid || body.recipient;
+  if (!target || !body.message && !body.text) return null;
+  const clean = cleanPhoneNumber(target);
   return clean ? `otp:${clean}` : null;
 };
 
@@ -100,15 +99,15 @@ export const pairLimiter = createRateLimiter({
 export const otpCooldown = createRateLimiter({
   windowMs: config.rateLimits.otpCooldownSeconds * 1000,
   max: 1,
-  keyFn: otpPhoneKey,
+  keyFn: messagePhoneKey,
   errCode: 'OTP_COOLDOWN',
-  errMessage: 'OTP ke nomor ini baru saja dikirim.',
+  errMessage: 'Pesan ke nomor ini baru saja dikirim.',
 });
 
 export const otpHourly = createRateLimiter({
   windowMs: 3600000,
   max: config.rateLimits.otpMaxPerHour,
-  keyFn: otpPhoneKey,
+  keyFn: messagePhoneKey,
   errCode: 'OTP_HOURLY_LIMIT',
-  errMessage: 'Batas maksimum OTP per nomor dalam satu jam telah tercapai.',
+  errMessage: 'Batas maksimum pesan per nomor dalam satu jam telah tercapai.',
 });

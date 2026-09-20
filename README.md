@@ -12,11 +12,10 @@ Microservice pengirim pesan WhatsApp yang dikhususkan untuk **OTP dan notifikasi
 * **Baileys v7 Modern:** Arsitektur Pure ESM, dukungan penuh LIDs (*Linked Identity JIDs*), dan ACKs dinonaktifkan secara *default* (*Anti-Ban protection*).
 * **Optimasi Performa & Memory:** Caching Signal Key Store (`makeCacheableSignalKeyStore`) dan `msgRetryCounterCache` (NodeCache) untuk efisiensi pengiriman dan perlindungan disk I/O.
 * **Proteksi Anti-Restriction:** Circuit breaker bertingkat untuk sinyal 463/tctoken, kuota pengirim sliding-window (per jam & per hari), pre-warm privacy token (tcToken) sebelum kirim 1:1, dan penolakan kirim ke nomor tak terdaftar.
-* **Rotasi Template OTP:** Empat template bawaan berbahasa Indonesia dengan spintax dan kode referensi unik (`Ref: #XXXXX`) agar hash pesan selalu berbeda.
 * **Server ACK Await:** Respons HTTP dapat menunggu konfirmasi server WhatsApp (centang 1) sebelum dinyatakan sukses.
 * **Target Personal Saja:** Normalisasi format nomor (`08xxx`, `628xxx`); nomor grup dan format lain ditolak untuk menjaga reputasi akun.
 * **REST API Terproteksi:** Autentikasi API Key aman (*timing-safe*) via header `x-api-key` atau `Authorization: Bearer <token>`.
-* **Rate Limiting & Anti-Spam:** Jaring pengaman limit IP, dedup OTP per nomor (cooldown 60 detik, maks 5/jam), serta proteksi payload size.
+* **Rate Limiting & Anti-Spam:** Jaring pengaman limit IP, dedup pesan per nomor tujuan (cooldown 60 detik, maks 5/jam), serta proteksi payload size.
 * **Housekeeping Sesi Otomatis:** Pembersihan file pre-key usang secara berkala menjaga ukuran direktori sesi tetap ringkas.
 * **Monitoring & Health Check:** Endpoint `GET /health` menyertakan info *uptime* dan penggunaan memori RAM Heap Node.js.
 
@@ -104,11 +103,9 @@ Semua endpoint kecuali `GET /` dan `GET /health` dilindungi oleh API Key via hea
 | `GET` | `/health` | Health check, Uptime, & RAM Heap Memory metrics (Public) |
 | `GET` | `/status` | Cek kondisi koneksi WhatsApp, circuit breaker, & kuota pengirim (Protected) |
 | `GET` | `/audit/:messageId` | Rekonsiliasi status pengiriman dari audit log (Protected) |
-| `GET` | `/otp-templates` | Daftar template OTP bawaan & aturan placeholder untuk migrasi template ke client (Protected) |
 | `GET` | `/qr/raw` | QR pairing Data URL JSON untuk dashboard admin (Protected) |
 | `POST` | `/pair-code` | Request 8-digit Pairing Code tanpa kamera (Protected) |
-| `POST` | `/send-otp` | Kirim kode OTP format standar / custom template (Protected) |
-| `POST` | `/send-message` | Kirim pesan teks bebas ke nomor personal (Protected) |
+| `POST` | `/send-message` | Kirim pesan teks ke nomor personal; isi pesan (termasuk template OTP) dirakit sepenuhnya oleh konsumen (Protected) |
 | `POST` | `/restart` | Restart koneksi socket tanpa menghapus sesi login (Protected) |
 | `POST` | `/logout` | Logout sesi & bersihkan storage kredensial (Protected) |
 
@@ -150,7 +147,6 @@ Respons memuat `result` (`success` atau `failed`), `http_status`, `code`, `ref_i
 ```bash
 npm run lint            # ESLint (flat config)
 npm test                # Suite test utama: HTTP + service dengan mock sock, aman tanpa koneksi WhatsApp
-npm run test:unit       # Unit test OTP template
 npm run test:integration# Smoke test kontrak HTTP, butuh gateway berjalan di PORT
 ```
 

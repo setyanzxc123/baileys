@@ -8,7 +8,6 @@
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "test": "node --test test/gateway.test.js",
-    "test:unit": "node test/otpTemplate.test.js",
     "test:integration": "node test/smoke.test.js",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix"

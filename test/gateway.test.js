@@ -62,21 +62,18 @@ const jsonPost = (path, body, headers = authHeaders) =>
     body: JSON.stringify(body),
   });
 
-test('POST /send-otp sukses tanpa menunggu server ack', async () => {
+test('POST /send-message sukses tanpa menunggu server ack', async () => {
   injectConnectedSock();
-  const res = await jsonPost('/send-otp', { phone: uniquePhone(), otp: '123456', wait_for_ack: false });
+  const res = await jsonPost('/send-message', { phone: uniquePhone(), message: 'Kode OTP Anda: 123456', wait_for_ack: false });
   const data = await res.json();
 
   assert.strictEqual(res.status, 200);
   assert.strictEqual(data.status, 'success');
   assert.strictEqual(data.data.server_ack, undefined);
   assert.ok(data.data.messageId);
-  assert.ok(typeof data.data.template_index === 'number');
-  assert.match(data.data.ref_id, /^[2-9A-Z]{5}$/);
-  assert.ok(data.data.ref_id);
 });
 
-test('POST /send-otp menunggu dan menerima server ack dari socket', async () => {
+test('POST /send-message menunggu dan menerima server ack dari socket', async () => {
   injectConnectedSock({
     sendMessage: async (jid, payload, opts) => {
       setTimeout(() => {
@@ -86,7 +83,7 @@ test('POST /send-otp menunggu dan menerima server ack dari socket', async () => 
     },
   });
 
-  const res = await jsonPost('/send-otp', { phone: uniquePhone(), otp: '654321', ack_timeout_ms: 1000 });
+  const res = await jsonPost('/send-message', { phone: uniquePhone(), message: 'tes ack', ack_timeout_ms: 1000 });
   const data = await res.json();
 
   assert.strictEqual(res.status, 200);
@@ -94,9 +91,9 @@ test('POST /send-otp menunggu dan menerima server ack dari socket', async () => 
   assert.ok(data.data.ack_elapsed_ms >= 0);
 });
 
-test('POST /send-otp server ack timeout menghasilkan 504 WA_SERVER_ACK_TIMEOUT', async () => {
+test('POST /send-message server ack timeout menghasilkan 504 WA_SERVER_ACK_TIMEOUT', async () => {
   injectConnectedSock();
-  const res = await jsonPost('/send-otp', { phone: uniquePhone(), otp: '111111', ack_timeout_ms: 100 });
+  const res = await jsonPost('/send-message', { phone: uniquePhone(), message: 'tes timeout', ack_timeout_ms: 100 });
   const data = await res.json();
 
   assert.strictEqual(res.status, 504);
@@ -104,12 +101,12 @@ test('POST /send-otp server ack timeout menghasilkan 504 WA_SERVER_ACK_TIMEOUT',
   assert.ok(data.message_id, '504 harus menyertakan message_id untuk dedup konsumen');
 });
 
-test('POST /send-otp ke nomor tidak terdaftar dihentikan 422 WA_NUMBER_NOT_REGISTERED', async () => {
+test('POST /send-message ke nomor tidak terdaftar dihentikan 422 WA_NUMBER_NOT_REGISTERED', async () => {
   injectConnectedSock({
     onWhatsApp: async () => [{ exists: false, jid: null }],
   });
 
-  const res = await jsonPost('/send-otp', { phone: uniquePhone(), otp: '222222', wait_for_ack: false });
+  const res = await jsonPost('/send-message', { phone: uniquePhone(), message: 'tes', wait_for_ack: false });
   const data = await res.json();
 
   assert.strictEqual(res.status, 422);
@@ -137,37 +134,37 @@ test('POST /send-message saat gateway offline fast-fail 503 tanpa menyentuh sock
   assert.strictEqual(data.code, 'WA_GATEWAY_OFFLINE');
 });
 
-test('POST /send-otp cooldown OTP kedua ke nomor sama ditolak 429 OTP_COOLDOWN', async () => {
+test('POST /send-message pesan kedua ke nomor sama ditolak 429 OTP_COOLDOWN', async () => {
   injectConnectedSock();
   const phone = uniquePhone();
-  const body = { phone, otp: '555111', wait_for_ack: false };
+  const body = { phone, message: 'Kode OTP Anda: 555111', wait_for_ack: false };
 
-  const first = await jsonPost('/send-otp', body);
+  const first = await jsonPost('/send-message', body);
   assert.strictEqual(first.status, 200);
 
-  const second = await jsonPost('/send-otp', body);
+  const second = await jsonPost('/send-message', body);
   const secondData = await second.json();
 
   assert.strictEqual(second.status, 429);
   assert.strictEqual(secondData.code, 'OTP_COOLDOWN');
 });
 
-test('POST /send-otp payload format otp invalid tidak membakar cooldown nomor', async () => {
+test('POST /send-message payload tanpa message tidak membakar cooldown nomor', async () => {
   injectConnectedSock();
   const phone = uniquePhone();
 
-  const invalid = await jsonPost('/send-otp', { phone, otp: 'abcd', wait_for_ack: false });
+  const invalid = await jsonPost('/send-message', { phone, wait_for_ack: false });
   assert.strictEqual(invalid.status, 422);
 
-  const next = await jsonPost('/send-otp', { phone, otp: '654321', wait_for_ack: false });
+  const next = await jsonPost('/send-message', { phone, message: 'Kode OTP Anda: 654321', wait_for_ack: false });
   assert.strictEqual(next.status, 200);
 });
 
-test('POST /send-otp saat circuit breaker 463 terbuka ditolak 429 WA_CIRCUIT_BREAKER_OPEN', async () => {
+test('POST /send-message saat circuit breaker 463 terbuka ditolak 429 WA_CIRCUIT_BREAKER_OPEN', async () => {
   injectConnectedSock();
   waClient.deliveryGuard.registerHit();
 
-  const res = await jsonPost('/send-otp', { phone: uniquePhone(), otp: '333333', wait_for_ack: false });
+  const res = await jsonPost('/send-message', { phone: uniquePhone(), message: 'tes', wait_for_ack: false });
   const data = await res.json();
 
   assert.strictEqual(res.status, 429);
@@ -175,14 +172,14 @@ test('POST /send-otp saat circuit breaker 463 terbuka ditolak 429 WA_CIRCUIT_BRE
   assert.ok(res.headers.get('retry-after'));
 });
 
-test('POST /send-otp nomor tak terdaftar tetap lolos saat query onWhatsApp gagal (fallback jaringan)', async () => {
+test('POST /send-message nomor tak terdaftar tetap lolos saat query onWhatsApp gagal (fallback jaringan)', async () => {
   injectConnectedSock({
     onWhatsApp: async () => {
       throw new Error('network outage');
     },
   });
 
-  const res = await jsonPost('/send-otp', { phone: uniquePhone(), otp: '444444', wait_for_ack: false });
+  const res = await jsonPost('/send-message', { phone: uniquePhone(), message: 'tes', wait_for_ack: false });
   const data = await res.json();
 
   assert.strictEqual(res.status, 200);
@@ -237,29 +234,29 @@ test('Kuota pengirim tidak terbakar saat circuit breaker terbuka', async () => {
   assert.strictEqual(afterSnap.used_hour, before.used_hour);
 });
 
-test('OTP cooldown di-refund saat kirim gagal sehingga percobaan berikutnya diloloskan', async () => {
+test('Cooldown per nomor di-refund saat kirim gagal sehingga percobaan berikutnya diloloskan', async () => {
   const phone = uniquePhone();
-  const body = { phone, otp: '777777', wait_for_ack: false };
+  const body = { phone, message: 'Kode OTP Anda: 777777', wait_for_ack: false };
 
   waClient.status = 'disconnected';
   waClient.sock = null;
-  const failed = await jsonPost('/send-otp', body);
+  const failed = await jsonPost('/send-message', body);
   assert.strictEqual(failed.status, 503);
 
   injectConnectedSock();
-  const retried = await jsonPost('/send-otp', body);
+  const retried = await jsonPost('/send-message', body);
   assert.strictEqual(retried.status, 200);
 });
 
-test('OTP cooldown tidak di-refund saat server ack timeout (504) untuk cegah OTP dobel', async () => {
+test('Cooldown per nomor tidak di-refund saat server ack timeout (504) untuk cegah kirim dobel', async () => {
   injectConnectedSock();
   const phone = uniquePhone();
-  const body = { phone, otp: '888888', ack_timeout_ms: 100 };
+  const body = { phone, message: 'Kode OTP Anda: 888888', ack_timeout_ms: 100 };
 
-  const first = await jsonPost('/send-otp', body);
+  const first = await jsonPost('/send-message', body);
   assert.strictEqual(first.status, 504);
 
-  const second = await jsonPost('/send-otp', { ...body, wait_for_ack: false });
+  const second = await jsonPost('/send-message', { ...body, wait_for_ack: false });
   const secondData = await second.json();
 
   assert.strictEqual(second.status, 429);
@@ -389,17 +386,17 @@ test('Idempotency-Key berbeda melakukan kirim baru', async () => {
   assert.strictEqual(sendCount, 2);
 });
 
-test('Retry /send-otp dengan key sama tetap sukses meski nomor sedang cooldown', async () => {
+test('Retry /send-message dengan key sama tetap sukses meski nomor sedang cooldown', async () => {
   injectConnectedSock();
   const phone = uniquePhone();
   const key = `otptest-${Date.now()}`;
   const headers = { 'Content-Type': 'application/json', 'x-api-key': API_KEY, 'Idempotency-Key': key };
-  const body = { phone, otp: '999999', wait_for_ack: false };
+  const body = { phone, message: 'Kode OTP Anda: 999999', wait_for_ack: false };
 
-  const first = await jsonPost('/send-otp', body, headers);
+  const first = await jsonPost('/send-message', body, headers);
   assert.strictEqual(first.status, 200);
 
-  const replay = await jsonPost('/send-otp', body, headers);
+  const replay = await jsonPost('/send-message', body, headers);
   assert.strictEqual(replay.status, 200, 'replay tidak boleh terkena OTP_COOLDOWN');
   assert.strictEqual(replay.headers.get('idempotent-replay'), 'true');
 });
@@ -419,24 +416,23 @@ test('Respons error turut di-replay untuk key yang sama', async () => {
   assert.strictEqual(replay.headers.get('idempotent-replay'), 'true');
 });
 
-test('Kirim sukses menulis audit dengan phone ter-mask dan tanpa konten OTP', async () => {
+test('Kirim sukses menulis audit dengan phone ter-mask dan tanpa konten pesan', async () => {
   injectConnectedSock();
   const phone = uniquePhone();
-  const res = await jsonPost('/send-otp', { phone, otp: '123456', wait_for_ack: false });
+  const res = await jsonPost('/send-message', { phone, message: 'Kode OTP Anda: 123456', wait_for_ack: false });
   const data = await res.json();
 
   assert.strictEqual(res.status, 200);
   const entry = auditService.find(data.data.messageId);
   assert.ok(entry, 'entry audit harus ada');
-  assert.strictEqual(entry.endpoint, 'send-otp');
+  assert.strictEqual(entry.endpoint, 'send-message');
   assert.strictEqual(entry.result, 'success');
   assert.strictEqual(entry.http_status, 200);
-  assert.ok(entry.ref_id);
   assert.ok(entry.phone.includes('x'), 'nomor harus ter-mask');
   assert.ok(!entry.phone.includes(phone.replace(/^08/, '628')), 'nomor tidak boleh utuh');
 
   const raw = fs.readFileSync(AUDIT_FILE, 'utf8');
-  assert.ok(!raw.includes('123456'), 'konten OTP tidak boleh tertulis di audit log');
+  assert.ok(!raw.includes('123456'), 'konten pesan tidak boleh tertulis di audit log');
 });
 
 test('Kirim gagal menulis audit dengan code yang sesuai', async () => {
@@ -477,59 +473,10 @@ test('maskPhone menyembunyikan digit tengah', () => {
   assert.strictEqual(maskPhone(''), 'unknown');
 });
 
-test('GET /otp-templates protected dan mengembalikan daftar template + placeholder', async () => {
-  const noAuth = await fetch(`${baseUrl}/otp-templates`);
-  assert.strictEqual(noAuth.status, 401);
+test('POST /send-otp dan GET /otp-templates sudah dihapus dan membalas 404', async () => {
+  const otpRes = await jsonPost('/send-otp', { phone: uniquePhone(), otp: '123456' });
+  assert.strictEqual(otpRes.status, 404);
 
-  const res = await fetch(`${baseUrl}/otp-templates`, { headers: authHeaders });
-  const data = await res.json();
-  assert.strictEqual(res.status, 200);
-  assert.ok(Array.isArray(data.data.templates));
-  assert.strictEqual(data.data.templates.length, 4);
-  assert.ok(data.data.templates.every((t) => t.includes('{{otp}}')));
-  assert.ok(data.data.placeholders.includes('{{otp}}'));
-  assert.ok(data.data.custom_template_rule);
-});
-
-test('POST /send-otp menolak template kustom tanpa placeholder {{otp}} dan tidak membakar cooldown', async () => {
-  injectConnectedSock();
-  const phone = uniquePhone();
-  const res = await jsonPost('/send-otp', {
-    phone,
-    otp: '123456',
-    template: 'Pesan tanpa placeholder kode sama sekali',
-    wait_for_ack: false,
-  });
-  const data = await res.json();
-  assert.strictEqual(res.status, 422);
-  assert.strictEqual(data.code, 'TEMPLATE_MISSING_OTP_PLACEHOLDER');
-
-  const retry = await jsonPost('/send-otp', {
-    phone,
-    otp: '123456',
-    template: 'Kode OTP Anda: *{{otp}}*',
-    wait_for_ack: false,
-  });
-  assert.strictEqual(retry.status, 200, 'validasi template gagal tidak boleh membakar cooldown OTP');
-});
-
-test('POST /send-otp menerima template kustom valid berisi {{otp}}', async () => {
-  injectConnectedSock();
-  let sentText = null;
-  waClient.sock.sendMessage = async (jid, payload, opts) => {
-    sentText = payload.text;
-    return { key: { id: opts.messageId }, messageTimestamp: 1789000000 };
-  };
-
-  const res = await jsonPost('/send-otp', {
-    phone: uniquePhone(),
-    otp: '778899',
-    template: '{Yth|Halo} Pelanggan, kode verifikasi Anda *{{otp}}* untuk {{app_name}}.',
-    wait_for_ack: false,
-  });
-  const data = await res.json();
-  assert.strictEqual(res.status, 200);
-  assert.strictEqual(data.data.template_index, null);
-  assert.ok(sentText.includes('778899'));
-  assert.ok(!sentText.includes('{{otp}}'), 'placeholder harus sudah tersubstitusi');
+  const tplRes = await fetch(`${baseUrl}/otp-templates`, { headers: authHeaders });
+  assert.strictEqual(tplRes.status, 404);
 });

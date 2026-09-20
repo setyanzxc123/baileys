@@ -4,7 +4,7 @@ import { sendLimiter, otpCooldown, otpHourly } from '../middlewares/rateLimiter.
 import { createIdempotencyMiddleware } from '../middlewares/idempotency.js';
 import { createIdempotencyStore } from '../utils/idempotencyStore.js';
 import { config } from '../config/app.js';
-import { sendMessage, sendOtp } from '../controllers/messageController.js';
+import { sendMessage } from '../controllers/messageController.js';
 
 const idempotencyGuard = createIdempotencyMiddleware(
   createIdempotencyStore({
@@ -15,7 +15,6 @@ const idempotencyGuard = createIdempotencyMiddleware(
 
 const router = Router();
 
-router.post('/send-message', requireAuth, idempotencyGuard, sendLimiter, sendMessage);
-router.post('/send-otp', requireAuth, idempotencyGuard, sendLimiter, otpCooldown, otpHourly, sendOtp);
+router.post('/send-message', requireAuth, idempotencyGuard, sendLimiter, otpCooldown, otpHourly, sendMessage);
 
 export default router;

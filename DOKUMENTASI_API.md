@@ -22,9 +22,7 @@
      * `POST /logout` - Putuskan Sesi & Bersihkan Auth
      * `POST /restart` - Restart Socket Tanpa Hapus Sesi
    * [C. Pengiriman Pesan](#c-pengiriman-pesan)
-     * `POST /send-otp` - Kirim Pesan OTP (Format Standar / Custom Template)
      * `POST /send-message` - Kirim Pesan Teks Personal
-     * `GET /otp-templates` - Daftar Template Bawaan & Aturan Placeholder
 4. [Contoh Kode Integrasi](#4-contoh-kode-integrasi)
 
 ---
@@ -52,7 +50,7 @@ Semua endpoint pengiriman pesan dan operasi perangkat dilindungi menggunakan **A
 *Catatan Keamanan*: Query string parameter `?api_key=` tidak didukung untuk mencegah kunci bocor di access log proxy dan history browser.
 
 ### Pencegahan Kirim Ganda (Idempotency-Key)
-Endpoint `POST /send-otp` dan `POST /send-message` mendukung header opsional **`Idempotency-Key`**. Sertakan kunci unik untuk setiap upaya kirim (misal UUID dari sisi konsumen); bila permintaan di-retry karena timeout jaringan atau respons hilang, kirim kembali permintaan identik dengan **key yang sama** dan gateway akan membalas respons tersimpan tanpa mengirim ulang pesan.
+Endpoint `POST /send-message` mendukung header opsional **`Idempotency-Key`**. Sertakan kunci unik untuk setiap upaya kirim (misal UUID dari sisi konsumen); bila permintaan di-retry karena timeout jaringan atau respons hilang, kirim kembali permintaan identik dengan **key yang sama** dan gateway akan membalas respons tersimpan tanpa mengirim ulang pesan.
 
 * Masa berlaku respons tersimpan: 10 menit (dapat diatur via `IDEMPOTENCY_TTL_MS`).
 * Respons yang di-replay ditandai header `Idempotent-Replay: true`.
@@ -86,13 +84,11 @@ Endpoint `POST /send-otp` dan `POST /send-message` mendukung header opsional **`
 |---|---|---|
 | **401** | `UNAUTHORIZED` | Header API Key tidak valid atau belum disertakan. |
 | **404** | `NOT_FOUND` | Endpoint tidak ditemukan. |
-| **422** | `VALIDATION_ERROR` | Parameter wajib (`phone`/`to`, `message`, `otp`, dll.) kosong atau tidak valid. |
-| **422** | `OTP_INVALID_FORMAT` | Parameter `otp` harus berupa 4-8 digit angka. |
-| **422** | `TEMPLATE_MISSING_OTP_PLACEHOLDER` | Template kustom pada `/send-otp` tidak memuat placeholder `{{otp}}`, sehingga kode tidak akan tersampaikan ke penerima. |
+| **422** | `VALIDATION_ERROR` | Parameter wajib (`phone`/`to`, `message`, dll.) kosong atau tidak valid. |
 | **422** | `WA_INVALID_TARGET` | Nomor tujuan tidak valid. Hanya nomor pribadi WhatsApp yang didukung. |
 | **422** | `WA_NUMBER_NOT_REGISTERED` | Nomor tujuan tidak terdaftar di WhatsApp. Pengiriman dihentikan demi reputasi akun pengirim. |
 | **429** | `RATE_LIMITED` | Batas request per menit terlampaui. Header `Retry-After` berisi detik tunggu. |
-| **429** | `OTP_COOLDOWN` | OTP ke nomor tujuan baru saja dikirim. Silakan tunggu jeda cooldown (default 60 detik). |
+| **429** | `OTP_COOLDOWN` | Pesan ke nomor tujuan baru saja dikirim. Silakan tunggu jeda cooldown (default 60 detik). |
 | **429** | `OTP_HOURLY_LIMIT` | Batas maksimum pengiriman OTP per nomor per jam telah tercapai (default 5). |
 | **429** | `WA_CIRCUIT_BREAKER_OPEN` / `WA_SENDER_LIMIT` | Circuit breaker 463 aktif atau kuota pengirim harian/jam tercapai. Header `Retry-After` berisi detik tunggu. |
 | **409** | `IDEMPOTENCY_IN_PROGRESS` | Permintaan dengan `Idempotency-Key` yang sama sedang diproses. |
@@ -230,9 +226,9 @@ Menutup socket lama dan menyambungkan kembali tanpa menghapus sesi login di disk
 ```
 
 #### 8. Rekonsiliasi Status Pengiriman (`GET /audit/:messageId`)
-Membaca catatan pengiriman dari audit log append-only (`logs/audit.jsonl`) untuk menentukan nasib sebuah pengiriman, khususnya saat respons awal berupa `504 WA_SERVER_ACK_TIMEOUT` yang ambigu. Nomor telepon tersimpan ter-mask dan konten OTP tidak pernah dicatat.
+Membaca catatan pengiriman dari audit log append-only (`logs/audit.jsonl`) untuk menentukan nasib sebuah pengiriman, khususnya saat respons awal berupa `504 WA_SERVER_ACK_TIMEOUT` yang ambigu. Nomor telepon tersimpan ter-mask dan konten pesan tidak pernah dicatat.
 * **Autentikasi:** Protected (`x-api-key`)
-* **Path Parameter:** `messageId` = nilai `messageId` atau `message_id` dari respons `/send-otp` atau `/send-message`.
+* **Path Parameter:** `messageId` = nilai `messageId` atau `message_id` dari respons `/send-message`.
 * **Contoh Respons (200 OK):**
 ```json
 {
@@ -240,9 +236,8 @@ Membaca catatan pengiriman dari audit log append-only (`logs/audit.jsonl`) untuk
   "data": {
     "ts": "2026-09-20T07:12:34.000Z",
     "message_id": "BAE5F61829...",
-    "ref_id": "X8K2M",
     "phone": "6281xxxxxx90",
-    "endpoint": "send-otp",
+    "endpoint": "send-message",
     "result": "success",
     "http_status": 200,
     "code": null,
@@ -256,50 +251,8 @@ Membaca catatan pengiriman dari audit log append-only (`logs/audit.jsonl`) untuk
 
 ### C. Pengiriman Pesan
 
-#### 8. Kirim Pesan OTP (`POST /send-otp`)
-* **Autentikasi:** Protected (`x-api-key`)
-* **Request Body:**
-```json
-{
-  "phone": "08123456789",
-  "otp": "748192",
-  "app_name": "Portal Pelayanan",
-  "template": "{Halo|Hai}, kode verifikasi Anda untuk {{app_name}} adalah *{{otp}}*. Berlaku {{expiry_minutes}} menit.",
-  "template_index": 0,
-  "expiry_minutes": 5,
-  "include_ref": true,
-  "wait_for_ack": true,
-  "ack_timeout_ms": 3000
-}
-```
-* **Keterangan Parameter Opsional:**
-  * `app_name`: Nama portal / aplikasi (default: konfigurasi `SERVICE_NAME` atau `"WhatsApp Gateway"`).
-  * `template`: Format pesan kustom (mendukung placeholder `{{otp}}`, `{{app_name}}`, `{{expiry_minutes}}`, dan Spintax acak seperti `{Halo|Hai|Yth}`). **Wajib memuat placeholder `{{otp}}`**; template kustom tanpa placeholder tersebut ditolak dengan `422 TEMPLATE_MISSING_OTP_PLACEHOLDER` agar kode tidak hilang dari pesan. Lihat `GET /otp-templates` untuk daftar placeholder dan template bawaan.
-  * `template_index`: Pilihan indeks template bawaan (`0`: Formal, `1`: Langsung/To-the-point, `2`: Keamanan Akun, `3`: Ramah/Personal). Jika tidak diisi dan `template` kosong, gateway merotasi secara acak.
-  * `expiry_minutes`: Masa berlaku kode dalam menit (default: `5`).
-  * `include_ref`: Menyisipkan kode referensi unik di akhir pesan (`Ref: #XXXXX`) untuk memastikan hash pesan selalu unik dan terhindar dari spam filter WhatsApp (default: `true`).
-  * `wait_for_ack`: Menahan respons HTTP hingga Server ACK / Centang 1 terkonfirmasi (default: `true`).
-  * `ack_timeout_ms`: Batas waktu tunggu Server ACK sebelum timeout (default: `3000` ms).
-* **Contoh Respons (200 OK):**
-```json
-{
-  "status": "success",
-  "message": "Kode OTP berhasil dikirim via WhatsApp.",
-  "data": {
-    "messageId": "BAE5F61829...",
-    "phone": "628123456789",
-    "timestamp": 1788190000,
-    "otp_length": 6,
-    "server_ack": true,
-    "ack_elapsed_ms": 235,
-    "template_index": 1,
-    "ref_id": "X8K2M"
-  }
-}
-```
-
 #### 9. Kirim Pesan Teks (`POST /send-message`)
-Hanya mendukung nomor personal (`08xxx` / `628xxx`). Nomor grup atau format lain ditolak dengan `WA_INVALID_TARGET`.
+Hanya mendukung nomor personal (`08xxx` / `628xxx`). Nomor grup atau format lain ditolak dengan `WA_INVALID_TARGET`. **Isi pesan dirakit sepenuhnya oleh konsumen** — termasuk template OTP, teks notifikasi, dan kode referensi unik bila diperlukan. Gateway tidak lagi menyediakan template bawaan; gunakan jeda cooldown per nomor (60 detik, maks 5 pesan/jam per nomor) sebagai acuan perilaku pengiriman.
 * **Autentikasi:** Protected (`x-api-key`)
 * **Request Body:**
 ```json
@@ -325,23 +278,6 @@ Hanya mendukung nomor personal (`08xxx` / `628xxx`). Nomor grup atau format lain
   }
 }
 ```
-
-#### 10. Daftar Template OTP (`GET /otp-templates`)
-Mengembalikan 4 template bawaan, daftar placeholder yang didukung, dan aturan template kustom. Ditujukan untuk konsumen yang ingin memindahkan pengelolaan template OTP ke sisi client: salin template sebagai titik awal, kelola rotasi/spintax di client, lalu kirim hasilnya lewat field `template` pada `POST /send-otp`.
-* **Autentikasi:** Protected (`x-api-key`)
-* **Contoh Respons (200 OK):**
-```json
-{
-  "status": "success",
-  "data": {
-    "templates": ["*KODE VERIFIKASI LOGIN*\n\nKode OTP Anda untuk portal *{{app_name}}* adalah:...", "..."],
-    "placeholders": ["{{otp}}", "{{app_name}}", "{{expiry_minutes}}"],
-    "spintax": "{pilihan1|pilihan2|pilihan3}",
-    "custom_template_rule": "Template kustom dikirim via field 'template' pada POST /send-otp dan wajib memuat placeholder '{{otp}}'."
-  }
-}
-```
-*Catatan:* Template bawaan tetap menjadi fallback bila field `template` tidak dikirim. Safety rails gateway (cooldown OTP per nomor, limit per jam, kuota pengirim, idempotency) berlaku sama untuk template bawaan maupun kustom.
 
 ---
 
@@ -379,18 +315,18 @@ function sendWhatsAppMessage($to, $message) {
 
 ### 2. Integrasi JavaScript / Node.js
 ```javascript
-async function sendOtp(phone, otp) {
-  const response = await fetch('http://127.0.0.1:3001/send-otp', {
+async function sendOtp(phone, otpCode) {
+  // Template OTP dirakit di sisi client; gateway hanya meneruskan teks.
+  const message = `*KODE VERIFIKASI*\n\nKode OTP Anda: *${otpCode}*\n\nBerlaku 5 menit. Jangan berikan kode ini kepada siapapun.`;
+
+  const response = await fetch('http://127.0.0.1:3001/send-message', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'x-api-key': process.env.WA_GATEWAY_KEY,
+      'Idempotency-Key': crypto.randomUUID(),
     },
-    body: JSON.stringify({
-      phone,
-      otp,
-      app_name: 'Portal Layanan',
-    }),
+    body: JSON.stringify({ phone, message }),
   });
 
   const data = await response.json();
@@ -401,14 +337,22 @@ async function sendOtp(phone, otp) {
 ### 3. Integrasi Python
 ```python
 import requests
+import uuid
 
-def send_otp(phone, otp):
-    url = "http://127.0.0.1:3001/send-otp"
+def send_otp(phone, otp_code):
+    # Template OTP dirakit di sisi client; gateway hanya meneruskan teks.
+    message = (
+        "*KODE VERIFIKASI*\n\n"
+        f"Kode OTP Anda: *{otp_code}*\n\n"
+        "Berlaku 5 menit. Jangan berikan kode ini kepada siapapun."
+    )
+    url = "http://127.0.0.1:3001/send-message"
     headers = {
         "Content-Type": "application/json",
-        "x-api-key": "gw_rahasia_anda"
+        "x-api-key": "gw_rahasia_anda",
+        "Idempotency-Key": str(uuid.uuid4()),
     }
-    payload = {"phone": phone, "otp": otp, "app_name": "Portal Layanan"}
+    payload = {"phone": phone, "message": message}
 
     response = requests.post(url, json=payload, headers=headers)
     return response.json()
@@ -416,8 +360,8 @@ def send_otp(phone, otp):
 
 ### 4. Integrasi cURL Terminal
 ```bash
-curl -X POST http://localhost:3001/send-otp \
+curl -X POST http://localhost:3001/send-message \
   -H "Content-Type: application/json" \
   -H "x-api-key: <API_KEY_ANDA>" \
-  -d '{"phone": "08123456789", "otp": "748192", "app_name": "Portal Layanan"}'
+  -d '{"phone": "08123456789", "message": "*KODE VERIFIKASI*\n\nKode OTP Anda: *748192*\n\nBerlaku 5 menit."}'
 ```

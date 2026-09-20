@@ -51,8 +51,4 @@ export const config = {
     file: process.env.AUDIT_LOG_FILE || './logs/audit.jsonl',
     indexMax: parsePositiveInt(process.env.AUDIT_INDEX_MAX, 2000),
   },
-  otp: {
-    defaultExpiryMinutes: parsePositiveInt(process.env.OTP_DEFAULT_EXPIRY_MINUTES, 5),
-    includeRef: process.env.OTP_INCLUDE_REF !== 'false',
-  },
 };

@@ -1,9 +1,6 @@
 import { waClient } from '../services/baileysService.js';
 import { auditService } from '../services/auditService.js';
-import { config } from '../config/app.js';
-import { OTP_PATTERN, DEFAULT_APP_NAME } from '../config/constants.js';
-import { otpCooldown, otpHourly, otpPhoneKey } from '../middlewares/rateLimiter.js';
-import { buildOtpMessage, templateHasOtpPlaceholder } from '../utils/otpTemplateHelper.js';
+import { otpCooldown, otpHourly, messagePhoneKey } from '../middlewares/rateLimiter.js';
 
 const resolveSendError = (res, error, fallbackCode) => {
   if (error?.statusCode === 429) {
@@ -93,112 +90,15 @@ export const sendMessage = async (req, res) => {
       data: result,
     });
   } catch (error) {
-    auditService.record({
-      message_id: error?.messageId,
-      phone: target,
-      endpoint: 'send-message',
-      result: 'failed',
-      http_status: error?.statusCode || (!waClient.getStatus().connected ? 503 : 500),
-      code: error?.code,
-      latency_ms: Date.now() - startedAt,
-    });
-    return resolveSendError(res, error, 'SEND_FAILED');
-  }
-};
-
-export const sendOtp = async (req, res) => {
-  const startedAt = Date.now();
-  const {
-    phone,
-    otp,
-    app_name,
-    template,
-    template_index,
-    expiry_minutes,
-    include_ref,
-    wait_for_ack,
-    ack_timeout_ms,
-  } = req.body || {};
-
-  if (!phone || !otp) {
-    return res.status(422).json({
-      status: 'error',
-      message: "Parameter 'phone' dan 'otp' wajib diisi.",
-    });
-  }
-
-  if (!OTP_PATTERN.test(String(otp))) {
-    return res.status(422).json({
-      status: 'error',
-      code: 'OTP_INVALID_FORMAT',
-      message: "Parameter 'otp' harus berupa 4-8 digit angka.",
-    });
-  }
-
-  const hasCustomTemplate = typeof template === 'string' && template.trim().length > 0;
-  if (hasCustomTemplate && !templateHasOtpPlaceholder(template)) {
-    const key = otpPhoneKey(req);
-    otpCooldown.refund(key);
-    otpHourly.refund(key);
-    return res.status(422).json({
-      status: 'error',
-      code: 'TEMPLATE_MISSING_OTP_PLACEHOLDER',
-      message: "Template kustom wajib memuat placeholder {{otp}} agar kode OTP tersampaikan ke penerima.",
-    });
-  }
-
-  const appTitle = app_name || config.serviceName || DEFAULT_APP_NAME;
-  const expiry = Number.isInteger(Number(expiry_minutes)) && Number(expiry_minutes) > 0
-    ? Number(expiry_minutes)
-    : (config.otp?.defaultExpiryMinutes || 5);
-  const shouldIncludeRef = include_ref !== undefined
-    ? Boolean(include_ref)
-    : (config.otp?.includeRef !== false);
-
-  const { text: textMessage, templateIndex, refId } = buildOtpMessage({
-    otp,
-    appName: appTitle,
-    expiryMinutes: expiry,
-    template,
-    templateIndex: template_index,
-    includeRef: shouldIncludeRef,
-  });
-
-  try {
-    const result = await waClient.sendMessage(phone, textMessage, {
-      waitForAck: wait_for_ack,
-      ackTimeoutMs: ack_timeout_ms,
-    });
-    auditService.record({
-      message_id: result?.messageId,
-      ref_id: refId,
-      phone: result?.phone || phone,
-      endpoint: 'send-otp',
-      result: 'success',
-      http_status: 200,
-      latency_ms: Date.now() - startedAt,
-    });
-    return res.json({
-      status: 'success',
-      message: 'Kode OTP berhasil dikirim via WhatsApp.',
-      data: {
-        ...result,
-        otp_length: String(otp).length,
-        template_index: templateIndex,
-        ref_id: refId,
-      },
-    });
-  } catch (error) {
     if (error?.statusCode !== 504) {
-      const key = otpPhoneKey(req);
+      const key = messagePhoneKey(req);
       otpCooldown.refund(key);
       otpHourly.refund(key);
     }
     auditService.record({
       message_id: error?.messageId,
-      ref_id: refId,
-      phone,
-      endpoint: 'send-otp',
+      phone: target,
+      endpoint: 'send-message',
       result: 'failed',
       http_status: error?.statusCode || (!waClient.getStatus().connected ? 503 : 500),
       code: error?.code,

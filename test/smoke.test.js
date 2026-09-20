@@ -7,7 +7,6 @@ import { BaileysService } from '../src/services/baileysService.js';
 import { isTcTokenExpired, TC_TOKEN_BUCKET_DURATION, TC_TOKEN_NUM_BUCKETS } from '../src/utils/tcTokenHelper.js';
 import { createDeliveryGuard } from '../src/utils/deliveryGuard.js';
 import { createSenderRateLimiter } from '../src/utils/senderRateLimiter.js';
-import { buildOtpMessage } from '../src/utils/otpTemplateHelper.js';
 
 const BASE_URL = process.env.TEST_BASE_URL || 'http://localhost:3001';
 const API_KEY = process.env.API_KEY;
@@ -329,46 +328,6 @@ test('GET /status menampilkan konfigurasi server_ack dan pending_acks', async ()
   assert.strictEqual(typeof data.data.server_ack.timeout_ms, 'number');
   assert.strictEqual(typeof data.data.server_ack.pending_acks, 'number');
 });
-
-test('OTP Template Helper — rotasi template acak dan default ref ID', async () => {
-  const seenTemplates = new Set();
-  for (let i = 0; i < 20; i++) {
-    const res = buildOtpMessage({ otp: '123456', appName: 'PortalTest' });
-    assert.ok(res.text.includes('123456'));
-    assert.ok(res.text.includes('PortalTest'));
-    assert.ok(res.text.includes('Ref: #'));
-    assert.strictEqual(typeof res.refId, 'string');
-    seenTemplates.add(res.templateIndex);
-  }
-  assert.ok(seenTemplates.size > 1);
-});
-
-test('OTP Template Helper — pemilihan template_index eksplisit dan include_ref=false', async () => {
-  const res = buildOtpMessage({
-    otp: '654321',
-    appName: 'PortalTest',
-    templateIndex: 1,
-    includeRef: false,
-  });
-  assert.strictEqual(res.templateIndex, 1);
-  assert.strictEqual(res.refId, null);
-  assert.ok(!res.text.includes('Ref: #'));
-  assert.ok(res.text.includes('654321'));
-});
-
-test('OTP Template Helper — parseSpintax dan replacement placeholder custom template', async () => {
-  const res = buildOtpMessage({
-    otp: '998877',
-    appName: 'CustomApp',
-    expiryMinutes: 10,
-    template: '{Halo|Hai}, kode {{app_name}} Anda: *{{otp}}*. Berlaku {{expiry_minutes}} menit.',
-    includeRef: true,
-  });
-  assert.match(res.text, /^(Halo|Hai), kode CustomApp Anda: \*998877\*\. Berlaku 10 menit\.\n\nRef: #[2-9A-Z]{5}$/);
-  assert.strictEqual(res.templateIndex, null);
-  assert.strictEqual(typeof res.refId, 'string');
-});
-
 
 const run = async () => {
   console.log(`Smoke Test Integrasi — WhatsApp Gateway (Baileys v7) -> ${BASE_URL}\n`);
