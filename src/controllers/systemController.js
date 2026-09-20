@@ -1,4 +1,5 @@
 import { waClient } from '../services/baileysService.js';
+import { auditService } from '../services/auditService.js';
 import { config } from '../config/app.js';
 
 export const getRootDiscovery = (req, res) => {
@@ -16,6 +17,7 @@ export const getRootDiscovery = (req, res) => {
       pair_code: 'POST /pair-code (Protected)',
       logout: 'POST /logout (Protected)',
       restart: 'POST /restart (Protected)',
+      audit: 'GET /audit/:messageId (Protected)',
     },
   });
 };
@@ -41,5 +43,23 @@ export const getStatus = (req, res) => {
   return res.json({
     status: 'success',
     data: waClient.getStatus(),
+  });
+};
+
+export const getAudit = (req, res) => {
+  const messageId = String(req.params.messageId || '');
+  const entry = auditService.find(messageId);
+
+  if (!entry) {
+    return res.status(404).json({
+      status: 'error',
+      code: 'AUDIT_NOT_FOUND',
+      message: `Tidak ada catatan pengiriman untuk message_id '${messageId}'.`,
+    });
+  }
+
+  return res.json({
+    status: 'success',
+    data: entry,
   });
 };

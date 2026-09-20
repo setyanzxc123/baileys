@@ -1,12 +1,18 @@
 import { test, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 process.env.API_KEY = process.env.API_KEY || 'mock-test-key';
 process.env.COMPOSING_DELAY_MS = '0';
 process.env.LOG_LEVEL = process.env.LOG_LEVEL || 'silent';
+process.env.AUDIT_LOG_FILE = './logs/_test-audit.jsonl';
 
 const { app } = await import('../src/app.js');
 const { waClient } = await import('../src/services/baileysService.js');
+const { auditService, maskPhone } = await import('../src/services/auditService.js');
+
+const AUDIT_FILE = path.resolve('./logs/_test-audit.jsonl');
 
 const API_KEY = process.env.API_KEY;
 const authHeaders = { 'Content-Type': 'application/json', 'x-api-key': API_KEY };
@@ -23,6 +29,7 @@ before(async () => {
 after(async () => {
   waClient.shutdown();
   await new Promise((resolve) => server.close(resolve));
+  fs.rmSync(AUDIT_FILE, { force: true });
 });
 
 afterEach(() => {
@@ -410,4 +417,62 @@ test('Respons error turut di-replay untuk key yang sama', async () => {
   const replay = await jsonPost('/send-message', { phone: uniquePhone(), message: 'tes', wait_for_ack: false }, headers);
   assert.strictEqual(replay.status, 503, 'key sama membalas hasil percobaan pertama, bukan kirim baru');
   assert.strictEqual(replay.headers.get('idempotent-replay'), 'true');
+});
+
+test('Kirim sukses menulis audit dengan phone ter-mask dan tanpa konten OTP', async () => {
+  injectConnectedSock();
+  const phone = uniquePhone();
+  const res = await jsonPost('/send-otp', { phone, otp: '123456', wait_for_ack: false });
+  const data = await res.json();
+
+  assert.strictEqual(res.status, 200);
+  const entry = auditService.find(data.data.messageId);
+  assert.ok(entry, 'entry audit harus ada');
+  assert.strictEqual(entry.endpoint, 'send-otp');
+  assert.strictEqual(entry.result, 'success');
+  assert.strictEqual(entry.http_status, 200);
+  assert.ok(entry.ref_id);
+  assert.ok(entry.phone.includes('x'), 'nomor harus ter-mask');
+  assert.ok(!entry.phone.includes(phone.replace(/^08/, '628')), 'nomor tidak boleh utuh');
+
+  const raw = fs.readFileSync(AUDIT_FILE, 'utf8');
+  assert.ok(!raw.includes('123456'), 'konten OTP tidak boleh tertulis di audit log');
+});
+
+test('Kirim gagal menulis audit dengan code yang sesuai', async () => {
+  waClient.status = 'disconnected';
+  waClient.sock = null;
+  const res = await jsonPost('/send-message', { phone: uniquePhone(), message: 'tes' });
+  assert.strictEqual(res.status, 503);
+
+  const raw = fs.readFileSync(AUDIT_FILE, 'utf8');
+  const last = JSON.parse(raw.trim().split('\n').pop());
+  assert.strictEqual(last.result, 'failed');
+  assert.strictEqual(last.http_status, 503);
+  assert.strictEqual(last.endpoint, 'send-message');
+});
+
+test('GET /audit/:messageId mengembalikan entry dan menolak tanpa auth', async () => {
+  injectConnectedSock();
+  const res = await jsonPost('/send-message', { phone: uniquePhone(), message: 'tes', wait_for_ack: false });
+  const data = await res.json();
+  assert.strictEqual(res.status, 200);
+
+  const noAuth = await fetch(`${baseUrl}/audit/${data.data.messageId}`);
+  assert.strictEqual(noAuth.status, 401);
+
+  const found = await fetch(`${baseUrl}/audit/${data.data.messageId}`, { headers: authHeaders });
+  const foundData = await found.json();
+  assert.strictEqual(found.status, 200);
+  assert.strictEqual(foundData.data.message_id, data.data.messageId);
+  assert.strictEqual(foundData.data.result, 'success');
+
+  const missing = await fetch(`${baseUrl}/audit/NOPE-${Date.now()}`, { headers: authHeaders });
+  assert.strictEqual(missing.status, 404);
+});
+
+test('maskPhone menyembunyikan digit tengah', () => {
+  assert.strictEqual(maskPhone('081234567890'), '0812xxxxxx90');
+  assert.strictEqual(maskPhone('123'), '12xxxx');
+  assert.strictEqual(maskPhone(''), 'unknown');
 });

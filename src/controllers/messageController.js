@@ -1,4 +1,5 @@
 import { waClient } from '../services/baileysService.js';
+import { auditService } from '../services/auditService.js';
 import { config } from '../config/app.js';
 import { OTP_PATTERN, DEFAULT_APP_NAME } from '../config/constants.js';
 import { otpCooldown, otpHourly, otpPhoneKey } from '../middlewares/rateLimiter.js';
@@ -54,6 +55,7 @@ const resolveSendError = (res, error, fallbackCode) => {
 };
 
 export const sendMessage = async (req, res) => {
+  const startedAt = Date.now();
   const { phone, to, jid, recipient, message, text, wait_for_ack, ack_timeout_ms } = req.body || {};
   const target = phone || to || jid || recipient;
   const content = message || text;
@@ -77,17 +79,35 @@ export const sendMessage = async (req, res) => {
       waitForAck: wait_for_ack,
       ackTimeoutMs: ack_timeout_ms,
     });
+    auditService.record({
+      message_id: result?.messageId,
+      phone: result?.phone || target,
+      endpoint: 'send-message',
+      result: 'success',
+      http_status: 200,
+      latency_ms: Date.now() - startedAt,
+    });
     return res.json({
       status: 'success',
       message: 'Pesan berhasil dikirim via WhatsApp.',
       data: result,
     });
   } catch (error) {
+    auditService.record({
+      message_id: error?.messageId,
+      phone: target,
+      endpoint: 'send-message',
+      result: 'failed',
+      http_status: error?.statusCode || (!waClient.getStatus().connected ? 503 : 500),
+      code: error?.code,
+      latency_ms: Date.now() - startedAt,
+    });
     return resolveSendError(res, error, 'SEND_FAILED');
   }
 };
 
 export const sendOtp = async (req, res) => {
+  const startedAt = Date.now();
   const {
     phone,
     otp,
@@ -137,6 +157,15 @@ export const sendOtp = async (req, res) => {
       waitForAck: wait_for_ack,
       ackTimeoutMs: ack_timeout_ms,
     });
+    auditService.record({
+      message_id: result?.messageId,
+      ref_id: refId,
+      phone: result?.phone || phone,
+      endpoint: 'send-otp',
+      result: 'success',
+      http_status: 200,
+      latency_ms: Date.now() - startedAt,
+    });
     return res.json({
       status: 'success',
       message: 'Kode OTP berhasil dikirim via WhatsApp.',
@@ -153,6 +182,16 @@ export const sendOtp = async (req, res) => {
       otpCooldown.refund(key);
       otpHourly.refund(key);
     }
+    auditService.record({
+      message_id: error?.messageId,
+      ref_id: refId,
+      phone,
+      endpoint: 'send-otp',
+      result: 'failed',
+      http_status: error?.statusCode || (!waClient.getStatus().connected ? 503 : 500),
+      code: error?.code,
+      latency_ms: Date.now() - startedAt,
+    });
     return resolveSendError(res, error, 'SEND_FAILED');
   }
 };

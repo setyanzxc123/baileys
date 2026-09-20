@@ -46,6 +46,11 @@ export const config = {
     ttlMs: parsePositiveInt(process.env.IDEMPOTENCY_TTL_MS, 600000),
     maxKeys: parsePositiveInt(process.env.IDEMPOTENCY_MAX_KEYS, 1000),
   },
+  audit: {
+    enabled: process.env.AUDIT_LOG_ENABLED !== 'false',
+    file: process.env.AUDIT_LOG_FILE || './logs/audit.jsonl',
+    indexMax: parsePositiveInt(process.env.AUDIT_INDEX_MAX, 2000),
+  },
   otp: {
     defaultExpiryMinutes: parsePositiveInt(process.env.OTP_DEFAULT_EXPIRY_MINUTES, 5),
     includeRef: process.env.OTP_INCLUDE_REF !== 'false',
