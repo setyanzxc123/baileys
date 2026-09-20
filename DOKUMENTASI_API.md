@@ -227,6 +227,29 @@ Menutup socket lama dan menyambungkan kembali tanpa menghapus sesi login di disk
 }
 ```
 
+#### 8. Rekonsiliasi Status Pengiriman (`GET /audit/:messageId`)
+Membaca catatan pengiriman dari audit log append-only (`logs/audit.jsonl`) untuk menentukan nasib sebuah pengiriman, khususnya saat respons awal berupa `504 WA_SERVER_ACK_TIMEOUT` yang ambigu. Nomor telepon tersimpan ter-mask dan konten OTP tidak pernah dicatat.
+* **Autentikasi:** Protected (`x-api-key`)
+* **Path Parameter:** `messageId` = nilai `messageId` atau `message_id` dari respons `/send-otp` atau `/send-message`.
+* **Contoh Respons (200 OK):**
+```json
+{
+  "status": "success",
+  "data": {
+    "ts": "2026-09-20T07:12:34.000Z",
+    "message_id": "BAE5F61829...",
+    "ref_id": "X8K2M",
+    "phone": "6281xxxxxx90",
+    "endpoint": "send-otp",
+    "result": "success",
+    "http_status": 200,
+    "code": null,
+    "latency_ms": 812
+  }
+}
+```
+* **Error 404:** `AUDIT_NOT_FOUND` bila `message_id` tidak ditemukan (index memori kosong setelah restart dan entry tidak ada di file audit).
+
 ---
 
 ### C. Pengiriman Pesan

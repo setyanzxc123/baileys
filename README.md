@@ -103,6 +103,7 @@ Semua endpoint kecuali `GET /` dan `GET /health` dilindungi oleh API Key via hea
 | `GET` | `/` | Service Discovery & Metadata gateway (Public) |
 | `GET` | `/health` | Health check, Uptime, & RAM Heap Memory metrics (Public) |
 | `GET` | `/status` | Cek kondisi koneksi WhatsApp, circuit breaker, & kuota pengirim (Protected) |
+| `GET` | `/audit/:messageId` | Rekonsiliasi status pengiriman dari audit log (Protected) |
 | `GET` | `/qr/raw` | QR pairing Data URL JSON untuk dashboard admin (Protected) |
 | `POST` | `/pair-code` | Request 8-digit Pairing Code tanpa kamera (Protected) |
 | `POST` | `/send-otp` | Kirim kode OTP format standar / custom template (Protected) |
@@ -128,6 +129,18 @@ Folder `sessions/` menyimpan kunci enkripsi Signal Protocol hasil pairing.
 ```cron
 0 3 * * * cd /path/to/baileys && ./scripts/backup-sessions.sh >> /var/log/wa-backup.log 2>&1
 ```
+
+### 3. Runbook Restart Aman (Penting untuk OTP)
+Seluruh pengaman anti-abuse berada **di RAM** dan **tereset setiap kali proses restart** (baik manual `pm2 restart` maupun otomatis karena crash): kuota pengirim 30/jam & 200/hari, cooldown OTP per nomor, dan penyimpanan `Idempotency-Key`. Ini membawa dua konsekuensi yang harus dipahami operator:
+
+1. **Jangan restart saat jam sibuk OTP.** Lakukan restart/deploy pada jendela sepi (mis. dini hari), karena restart mengisi ulang kuota dan menghapus cooldown yang sedang berjalan.
+2. **Risiko OTP dobel pasca-restart.** Bila konsumen melakukan retry dengan `Idempotency-Key` yang sama tepat setelah gateway restart, key lama sudah hilang sehingga gateway menganggapnya permintaan baru dan **dapat mengirim OTP kedua**. Panduan konsumen: setelah menerima error jaringan/503, jangan retry buta; cek dulu status pengiriman sebelumnya.
+
+**Rekonsiliasi status pengiriman.** Setiap percobaan kirim (sukses maupun gagal) dicatat ke audit log append-only `logs/audit.jsonl` dengan nomor telepon ter-mask dan tanpa konten OTP. Untuk memeriksa nasib sebuah pengiriman (khususnya respons `504` yang ambigu), gunakan endpoint:
+```bash
+curl http://127.0.0.1:3001/audit/<MESSAGE_ID> -H "x-api-key: $API_KEY_ANDA"
+```
+Respons memuat `result` (`success` atau `failed`), `http_status`, `code`, `ref_id`, dan `latency_ms`, sehingga operator dapat membedakan "terkirim tapi ACK hilang" dari "memang gagal". Perilaku ini dapat diatur via `AUDIT_LOG_ENABLED`, `AUDIT_LOG_FILE`, dan `AUDIT_INDEX_MAX`.
 
 ---
 
