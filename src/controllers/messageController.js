@@ -3,7 +3,7 @@ import { auditService } from '../services/auditService.js';
 import { config } from '../config/app.js';
 import { OTP_PATTERN, DEFAULT_APP_NAME } from '../config/constants.js';
 import { otpCooldown, otpHourly, otpPhoneKey } from '../middlewares/rateLimiter.js';
-import { buildOtpMessage } from '../utils/otpTemplateHelper.js';
+import { buildOtpMessage, templateHasOtpPlaceholder } from '../utils/otpTemplateHelper.js';
 
 const resolveSendError = (res, error, fallbackCode) => {
   if (error?.statusCode === 429) {
@@ -132,6 +132,18 @@ export const sendOtp = async (req, res) => {
       status: 'error',
       code: 'OTP_INVALID_FORMAT',
       message: "Parameter 'otp' harus berupa 4-8 digit angka.",
+    });
+  }
+
+  const hasCustomTemplate = typeof template === 'string' && template.trim().length > 0;
+  if (hasCustomTemplate && !templateHasOtpPlaceholder(template)) {
+    const key = otpPhoneKey(req);
+    otpCooldown.refund(key);
+    otpHourly.refund(key);
+    return res.status(422).json({
+      status: 'error',
+      code: 'TEMPLATE_MISSING_OTP_PLACEHOLDER',
+      message: "Template kustom wajib memuat placeholder {{otp}} agar kode OTP tersampaikan ke penerima.",
     });
   }
 

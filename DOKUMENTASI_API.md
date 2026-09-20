@@ -24,6 +24,7 @@
    * [C. Pengiriman Pesan](#c-pengiriman-pesan)
      * `POST /send-otp` - Kirim Pesan OTP (Format Standar / Custom Template)
      * `POST /send-message` - Kirim Pesan Teks Personal
+     * `GET /otp-templates` - Daftar Template Bawaan & Aturan Placeholder
 4. [Contoh Kode Integrasi](#4-contoh-kode-integrasi)
 
 ---
@@ -87,6 +88,7 @@ Endpoint `POST /send-otp` dan `POST /send-message` mendukung header opsional **`
 | **404** | `NOT_FOUND` | Endpoint tidak ditemukan. |
 | **422** | `VALIDATION_ERROR` | Parameter wajib (`phone`/`to`, `message`, `otp`, dll.) kosong atau tidak valid. |
 | **422** | `OTP_INVALID_FORMAT` | Parameter `otp` harus berupa 4-8 digit angka. |
+| **422** | `TEMPLATE_MISSING_OTP_PLACEHOLDER` | Template kustom pada `/send-otp` tidak memuat placeholder `{{otp}}`, sehingga kode tidak akan tersampaikan ke penerima. |
 | **422** | `WA_INVALID_TARGET` | Nomor tujuan tidak valid. Hanya nomor pribadi WhatsApp yang didukung. |
 | **422** | `WA_NUMBER_NOT_REGISTERED` | Nomor tujuan tidak terdaftar di WhatsApp. Pengiriman dihentikan demi reputasi akun pengirim. |
 | **429** | `RATE_LIMITED` | Batas request per menit terlampaui. Header `Retry-After` berisi detik tunggu. |
@@ -272,7 +274,7 @@ Membaca catatan pengiriman dari audit log append-only (`logs/audit.jsonl`) untuk
 ```
 * **Keterangan Parameter Opsional:**
   * `app_name`: Nama portal / aplikasi (default: konfigurasi `SERVICE_NAME` atau `"WhatsApp Gateway"`).
-  * `template`: Format pesan kustom (mendukung placeholder `{{otp}}`, `{{app_name}}`, `{{expiry_minutes}}`, dan Spintax acak seperti `{Halo|Hai|Yth}`).
+  * `template`: Format pesan kustom (mendukung placeholder `{{otp}}`, `{{app_name}}`, `{{expiry_minutes}}`, dan Spintax acak seperti `{Halo|Hai|Yth}`). **Wajib memuat placeholder `{{otp}}`**; template kustom tanpa placeholder tersebut ditolak dengan `422 TEMPLATE_MISSING_OTP_PLACEHOLDER` agar kode tidak hilang dari pesan. Lihat `GET /otp-templates` untuk daftar placeholder dan template bawaan.
   * `template_index`: Pilihan indeks template bawaan (`0`: Formal, `1`: Langsung/To-the-point, `2`: Keamanan Akun, `3`: Ramah/Personal). Jika tidak diisi dan `template` kosong, gateway merotasi secara acak.
   * `expiry_minutes`: Masa berlaku kode dalam menit (default: `5`).
   * `include_ref`: Menyisipkan kode referensi unik di akhir pesan (`Ref: #XXXXX`) untuk memastikan hash pesan selalu unik dan terhindar dari spam filter WhatsApp (default: `true`).
@@ -324,9 +326,24 @@ Hanya mendukung nomor personal (`08xxx` / `628xxx`). Nomor grup atau format lain
 }
 ```
 
----
+#### 10. Daftar Template OTP (`GET /otp-templates`)
+Mengembalikan 4 template bawaan, daftar placeholder yang didukung, dan aturan template kustom. Ditujukan untuk konsumen yang ingin memindahkan pengelolaan template OTP ke sisi client: salin template sebagai titik awal, kelola rotasi/spintax di client, lalu kirim hasilnya lewat field `template` pada `POST /send-otp`.
+* **Autentikasi:** Protected (`x-api-key`)
+* **Contoh Respons (200 OK):**
+```json
+{
+  "status": "success",
+  "data": {
+    "templates": ["*KODE VERIFIKASI LOGIN*\n\nKode OTP Anda untuk portal *{{app_name}}* adalah:...", "..."],
+    "placeholders": ["{{otp}}", "{{app_name}}", "{{expiry_minutes}}"],
+    "spintax": "{pilihan1|pilihan2|pilihan3}",
+    "custom_template_rule": "Template kustom dikirim via field 'template' pada POST /send-otp dan wajib memuat placeholder '{{otp}}'."
+  }
+}
+```
+*Catatan:* Template bawaan tetap menjadi fallback bila field `template` tidak dikirim. Safety rails gateway (cooldown OTP per nomor, limit per jam, kuota pengirim, idempotency) berlaku sama untuk template bawaan maupun kustom.
 
-## 4. Contoh Kode Integrasi
+---
 
 ### 1. Integrasi PHP (cURL)
 ```php

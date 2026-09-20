@@ -1,6 +1,7 @@
 import { waClient } from '../services/baileysService.js';
 import { auditService } from '../services/auditService.js';
 import { config } from '../config/app.js';
+import { DEFAULT_OTP_TEMPLATES, OTP_PLACEHOLDERS } from '../utils/otpTemplateHelper.js';
 
 export const getRootDiscovery = (req, res) => {
   return res.json({
@@ -18,6 +19,7 @@ export const getRootDiscovery = (req, res) => {
       logout: 'POST /logout (Protected)',
       restart: 'POST /restart (Protected)',
       audit: 'GET /audit/:messageId (Protected)',
+      otp_templates: 'GET /otp-templates (Protected)',
     },
   });
 };
@@ -43,6 +45,18 @@ export const getStatus = (req, res) => {
   return res.json({
     status: 'success',
     data: waClient.getStatus(),
+  });
+};
+
+export const getOtpTemplates = (req, res) => {
+  return res.json({
+    status: 'success',
+    data: {
+      templates: DEFAULT_OTP_TEMPLATES,
+      placeholders: OTP_PLACEHOLDERS,
+      spintax: '{pilihan1|pilihan2|pilihan3}',
+      custom_template_rule: "Template kustom dikirim via field 'template' pada POST /send-otp dan wajib memuat placeholder {{otp}}.",
+    },
   });
 };
 

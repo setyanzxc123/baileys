@@ -104,6 +104,7 @@ Semua endpoint kecuali `GET /` dan `GET /health` dilindungi oleh API Key via hea
 | `GET` | `/health` | Health check, Uptime, & RAM Heap Memory metrics (Public) |
 | `GET` | `/status` | Cek kondisi koneksi WhatsApp, circuit breaker, & kuota pengirim (Protected) |
 | `GET` | `/audit/:messageId` | Rekonsiliasi status pengiriman dari audit log (Protected) |
+| `GET` | `/otp-templates` | Daftar template OTP bawaan & aturan placeholder untuk migrasi template ke client (Protected) |
 | `GET` | `/qr/raw` | QR pairing Data URL JSON untuk dashboard admin (Protected) |
 | `POST` | `/pair-code` | Request 8-digit Pairing Code tanpa kamera (Protected) |
 | `POST` | `/send-otp` | Kirim kode OTP format standar / custom template (Protected) |

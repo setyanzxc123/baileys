@@ -1,9 +1,11 @@
 import assert from 'node:assert';
 import {
   DEFAULT_OTP_TEMPLATES,
+  OTP_PLACEHOLDERS,
   generateRefId,
   parseSpintax,
   buildOtpMessage,
+  templateHasOtpPlaceholder,
 } from '../src/utils/otpTemplateHelper.js';
 
 console.log('Running OTP Template & Anti-Spam Unit Tests...');
@@ -64,5 +66,13 @@ assert.match(customRes.text, /^(Yth|Halo) Pelanggan, OTP CustomApp Anda: \*99911
 assert.strictEqual(customRes.templateIndex, null);
 assert.strictEqual(typeof customRes.refId, 'string');
 console.log('PASS: buildOtpMessage processes custom template with spintax and placeholders');
+
+// 6. templateHasOtpPlaceholder & OTP_PLACEHOLDERS
+assert.strictEqual(templateHasOtpPlaceholder('Kode: {{otp}}'), true);
+assert.strictEqual(templateHasOtpPlaceholder('Tanpa kode'), false);
+assert.strictEqual(templateHasOtpPlaceholder(null), false);
+assert.ok(OTP_PLACEHOLDERS.includes('{{otp}}'));
+assert.ok(DEFAULT_OTP_TEMPLATES.every((t) => templateHasOtpPlaceholder(t)));
+console.log('PASS: templateHasOtpPlaceholder validates custom templates and defaults expose placeholders');
 
 console.log('All OTP Template unit tests PASSED successfully.');

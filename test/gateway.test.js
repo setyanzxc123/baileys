@@ -476,3 +476,60 @@ test('maskPhone menyembunyikan digit tengah', () => {
   assert.strictEqual(maskPhone('123'), '12xxxx');
   assert.strictEqual(maskPhone(''), 'unknown');
 });
+
+test('GET /otp-templates protected dan mengembalikan daftar template + placeholder', async () => {
+  const noAuth = await fetch(`${baseUrl}/otp-templates`);
+  assert.strictEqual(noAuth.status, 401);
+
+  const res = await fetch(`${baseUrl}/otp-templates`, { headers: authHeaders });
+  const data = await res.json();
+  assert.strictEqual(res.status, 200);
+  assert.ok(Array.isArray(data.data.templates));
+  assert.strictEqual(data.data.templates.length, 4);
+  assert.ok(data.data.templates.every((t) => t.includes('{{otp}}')));
+  assert.ok(data.data.placeholders.includes('{{otp}}'));
+  assert.ok(data.data.custom_template_rule);
+});
+
+test('POST /send-otp menolak template kustom tanpa placeholder {{otp}} dan tidak membakar cooldown', async () => {
+  injectConnectedSock();
+  const phone = uniquePhone();
+  const res = await jsonPost('/send-otp', {
+    phone,
+    otp: '123456',
+    template: 'Pesan tanpa placeholder kode sama sekali',
+    wait_for_ack: false,
+  });
+  const data = await res.json();
+  assert.strictEqual(res.status, 422);
+  assert.strictEqual(data.code, 'TEMPLATE_MISSING_OTP_PLACEHOLDER');
+
+  const retry = await jsonPost('/send-otp', {
+    phone,
+    otp: '123456',
+    template: 'Kode OTP Anda: *{{otp}}*',
+    wait_for_ack: false,
+  });
+  assert.strictEqual(retry.status, 200, 'validasi template gagal tidak boleh membakar cooldown OTP');
+});
+
+test('POST /send-otp menerima template kustom valid berisi {{otp}}', async () => {
+  injectConnectedSock();
+  let sentText = null;
+  waClient.sock.sendMessage = async (jid, payload, opts) => {
+    sentText = payload.text;
+    return { key: { id: opts.messageId }, messageTimestamp: 1789000000 };
+  };
+
+  const res = await jsonPost('/send-otp', {
+    phone: uniquePhone(),
+    otp: '778899',
+    template: '{Yth|Halo} Pelanggan, kode verifikasi Anda *{{otp}}* untuk {{app_name}}.',
+    wait_for_ack: false,
+  });
+  const data = await res.json();
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(data.data.template_index, null);
+  assert.ok(sentText.includes('778899'));
+  assert.ok(!sentText.includes('{{otp}}'), 'placeholder harus sudah tersubstitusi');
+});

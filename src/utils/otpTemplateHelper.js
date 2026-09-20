@@ -7,6 +7,11 @@ export const DEFAULT_OTP_TEMPLATES = [
   'Halo! Ini adalah kode OTP untuk akses akun *{{app_name}}* Anda:\n\n*{{otp}}*\n\n_Kode aktif selama {{expiry_minutes}} menit. Abaikan pesan ini bila Anda tidak merasa memintanya._',
 ];
 
+export const OTP_PLACEHOLDERS = ['{{otp}}', '{{app_name}}', '{{expiry_minutes}}'];
+
+export const templateHasOtpPlaceholder = (template) =>
+  typeof template === 'string' && template.includes('{{otp}}');
+
 export const generateRefId = (length = 5) => {
   const chars = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ';
   const randomBytes = crypto.randomBytes(length);
